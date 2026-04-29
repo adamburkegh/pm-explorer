@@ -1,0 +1,25 @@
+/* Petri Net Viewer — minimal canvas host styles */
+
+.pnv-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.pnv-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.pnv-canvas:active {
+  cursor: grabbing;
+}
+
+/* When interactive (click-to-fire) mode is active */
+.pnv-canvas.pnv-interactive {
+  cursor: pointer;
+}

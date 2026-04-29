@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PNV Demo</title>
+  <link rel="stylesheet" href="js/pnv/pnv.css">
+  <style>
+    html, body { margin: 0; height: 100%; font-family: sans-serif; }
+    body { display: flex; flex-direction: column; }
+    #toolbar {
+      padding: 8px 12px; background: #f5f5f5; border-bottom: 1px solid #ddd;
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    }
+    #toolbar button { padding: 4px 10px; cursor: pointer; }
+    .example-tabs { display: flex; gap: 0; }
+    .example-tabs button {
+      padding: 4px 14px; border: 1px solid #ccc; background: #fff;
+      cursor: pointer; border-radius: 0;
+    }
+    .example-tabs button:first-child { border-radius: 4px 0 0 4px; }
+    .example-tabs button:last-child  { border-radius: 0 4px 4px 0; border-left: none; }
+    .example-tabs button.active { background: #4682b4; color: #fff; border-color: #4682b4; }
+    #container { flex: 1; }
+    #status { margin-left: auto; color: #555; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <strong>PNV demo</strong>
+  <div class="example-tabs">
+    <button id="ex1" class="active">1 · Producer-consumer</button>
+    <button id="ex2">2 · Choice &amp; concurrency</button>
+  </div>
+  <button id="btn-fit">Fit view</button>
+  <button id="btn-step">Step</button>
+  <button id="btn-reset">Reset</button>
+  <span id="status"></span>
+</div>
+
+<div id="container" class="pnv-container">
+  <canvas id="canvas" class="pnv-canvas"></canvas>
+</div>
+
+<script src="js/pnv/model.js"></script>
+<script src="js/pnv/renderer.js"></script>
+<script src="js/pnv/viewer.js"></script>
+<script>
+  // ── Example 1: producer-consumer ───────────────────────────────────────────
+  function buildProducerConsumer() {
+    const net = new PetriNet(PetriNet.generateId(), 'Producer-consumer');
+    const p1 = new Place(PetriNet.generateId(), { x: 100, y: 200 }, 'start',  3);
+    const p2 = new Place(PetriNet.generateId(), { x: 300, y: 200 }, 'buffer', 0, 2);
+    const p3 = new Place(PetriNet.generateId(), { x: 500, y: 200 }, 'end',    0, null, 3);
+    const t1 = new Transition(PetriNet.generateId(), { x: 200, y: 200 }, 'produce');
+    const t2 = new Transition(PetriNet.generateId(), { x: 400, y: 200 }, 'consume');
+    net.addPlace(p1); net.addPlace(p2); net.addPlace(p3);
+    net.addTransition(t1); net.addTransition(t2);
+    net.addArc(new Arc(PetriNet.generateId(), p1.id, t1.id));
+    net.addArc(new Arc(PetriNet.generateId(), t1.id, p2.id));
+    net.addArc(new Arc(PetriNet.generateId(), p2.id, t2.id));
+    net.addArc(new Arc(PetriNet.generateId(), t2.id, p3.id));
+    return net;
+  }
+
+  // ── Example 2: choice & concurrency ───────────────────────────────────────
+  //
+  //  start(1) → fork → p_top ──────── task_A ──────── p_A_done ─┐
+  //                  ↘ p_bot → task_B (choice) → p_B_done ──────── join → end
+  //                          → task_C (choice) ↗
+  //
+  //  fork  = AND-split  (one transition, two output places → concurrency)
+  //  p_bot = XOR-split  (one place, two output transitions → choice)
+  //  join  = AND-join   (waits for both p_A_done and p_B_done)
+  //
+  function buildChoiceConcurrency() {
+    const net = new PetriNet(PetriNet.generateId(), 'Choice & concurrency');
+
+    // Places
+    const p_start  = new Place(PetriNet.generateId(), {x:  80, y: 220}, 'start',   1);
+    const p_top    = new Place(PetriNet.generateId(), {x: 260, y: 110}, 'p_top',   0);
+    const p_bot    = new Place(PetriNet.generateId(), {x: 260, y: 330}, 'p_choice',0);
+    const p_a_done = new Place(PetriNet.generateId(), {x: 460, y: 110}, 'p_A_done',0);
+    const p_b_done = new Place(PetriNet.generateId(), {x: 460, y: 330}, 'p_B_done',0);
+    const p_end    = new Place(PetriNet.generateId(), {x: 640, y: 220}, 'end',      0, null, 1);
+
+    // Transitions
+    const t_fork   = new Transition(PetriNet.generateId(), {x: 170, y: 220}, 'fork');
+    const t_A      = new Transition(PetriNet.generateId(), {x: 360, y: 110}, 'task A');
+    const t_B      = new Transition(PetriNet.generateId(), {x: 360, y: 280}, 'task B');
+    const t_C      = new Transition(PetriNet.generateId(), {x: 360, y: 380}, 'task C');
+    const t_join   = new Transition(PetriNet.generateId(), {x: 550, y: 220}, 'join');
+
+    [p_start, p_top, p_bot, p_a_done, p_b_done, p_end].forEach(p => net.addPlace(p));
+    [t_fork, t_A, t_B, t_C, t_join].forEach(t => net.addTransition(t));
+
+    // AND-split: fork consumes start, produces into both parallel branches
+    net.addArc(new Arc(PetriNet.generateId(), p_start.id,  t_fork.id));
+    net.addArc(new Arc(PetriNet.generateId(), t_fork.id,   p_top.id));
+    net.addArc(new Arc(PetriNet.generateId(), t_fork.id,   p_bot.id));
+
+    // Concurrent upper branch: task A
+    net.addArc(new Arc(PetriNet.generateId(), p_top.id,    t_A.id));
+    net.addArc(new Arc(PetriNet.generateId(), t_A.id,      p_a_done.id));
+
+    // XOR-choice lower branch: task B or task C (both lead to p_B_done)
+    net.addArc(new Arc(PetriNet.generateId(), p_bot.id,    t_B.id));
+    net.addArc(new Arc(PetriNet.generateId(), t_B.id,      p_b_done.id));
+    net.addArc(new Arc(PetriNet.generateId(), p_bot.id,    t_C.id));
+    net.addArc(new Arc(PetriNet.generateId(), t_C.id,      p_b_done.id));
+
+    // AND-join: join waits for both branches before producing end token
+    net.addArc(new Arc(PetriNet.generateId(), p_a_done.id, t_join.id));
+    net.addArc(new Arc(PetriNet.generateId(), p_b_done.id, t_join.id));
+    net.addArc(new Arc(PetriNet.generateId(), t_join.id,   p_end.id));
+
+    return net;
+  }
+
+  // ── Viewer setup ───────────────────────────────────────────────────────────
+  const canvas = document.getElementById('canvas');
+  const viewer = new PetriNetViewer(canvas, {
+    interactive: true,
+    onFire: (id, t) => setStatus(`Fired: ${t.label || id}`),
+  });
+
+  const examples = {
+    ex1: buildProducerConsumer,
+    ex2: buildChoiceConcurrency,
+  };
+
+  let activeExample = 'ex1';
+  let snapshots = {};
+
+  function loadExample(key) {
+    activeExample = key;
+    document.querySelectorAll('.example-tabs button').forEach(b => b.classList.toggle('active', b.id === key));
+    const net = examples[key]();
+    snapshots[key] = net.toJSON();
+    viewer.load(net);
+    setStatus('');
+  }
+
+  loadExample('ex1');
+
+  document.getElementById('ex1').addEventListener('click', () => loadExample('ex1'));
+  document.getElementById('ex2').addEventListener('click', () => loadExample('ex2'));
+
+  document.getElementById('btn-fit').addEventListener('click', () => viewer.fitView());
+
+  document.getElementById('btn-step').addEventListener('click', () => {
+    const net = viewer.net;
+    const enabled = Array.from(net.transitions.keys()).filter(id => net.isTransitionEnabled(id));
+    if (enabled.length === 0) { setStatus('Deadlock — no enabled transitions'); return; }
+    const id = enabled[Math.floor(Math.random() * enabled.length)];
+    net.fireTransition(id);
+    net.updateEnabledTransitions();
+    viewer.render();
+    setStatus(`Fired: ${net.transitions.get(id).label || id}`);
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    viewer.load(snapshots[activeExample]);
+    setStatus('Reset');
+  });
+
+  function setStatus(msg) {
+    document.getElementById('status').textContent = msg;
+  }
+</script>
+</body>
+</html>
