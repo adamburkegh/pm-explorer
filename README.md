@@ -4,7 +4,7 @@ Process Mining Explorer is a standalone, in-browser, introduction to process min
 
 ## Petri Net Viewer
 
-The Petri net viewer is adapted directly from [YAPNE|https://github.com/chimenkamp/YAPNE-Yet-Another-Petri-Net-Editor], a lovely in-browswer Petri net editor.
+The Petri net viewer is adapted directly from [YAPNE](https://github.com/chimenkamp/YAPNE-Yet-Another-Petri-Net-Editor), a lovely open source in-browswer Petri net editor and simulator.
 
 
 
