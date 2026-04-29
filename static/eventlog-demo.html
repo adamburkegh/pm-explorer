@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Event Log Demo</title>
+  <style>
+    html, body { margin: 0; height: 100%; font-family: monospace; font-size: 13px; }
+    body { display: flex; flex-direction: column; background: #1e1e1e; color: #d4d4d4; }
+    #toolbar {
+      padding: 8px 12px; background: #2d2d2d; border-bottom: 1px solid #444;
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-family: sans-serif;
+    }
+    #toolbar h2 { margin: 0; font-size: 14px; color: #9cdcfe; }
+    button {
+      padding: 4px 10px; cursor: pointer; background: #3a3a3a; color: #d4d4d4;
+      border: 1px solid #555; border-radius: 3px;
+    }
+    button:hover { background: #4a4a4a; }
+    #drop-zone {
+      border: 2px dashed #555; border-radius: 6px; padding: 6px 14px;
+      color: #888; cursor: pointer; font-family: sans-serif; font-size: 12px;
+    }
+    #drop-zone.over { border-color: #9cdcfe; color: #9cdcfe; }
+    #output { flex: 1; overflow: auto; padding: 12px 16px; }
+    .section { margin-bottom: 20px; }
+    .section h3 { margin: 0 0 6px; color: #569cd6; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #3a3a3a; padding: 3px 8px; text-align: left; }
+    th { background: #2d2d2d; color: #9cdcfe; }
+    tr:nth-child(even) { background: #252525; }
+    .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; }
+    .kv span:nth-child(odd)  { color: #9cdcfe; }
+    .kv span:nth-child(even) { color: #ce9178; }
+    .bar { display: inline-block; background: #264f78; height: 10px; vertical-align: middle; margin-left: 6px; }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h2>Event Log Demo</h2>
+  <button id="btn-load-example">Load running_example.xes</button>
+  <div id="drop-zone">Drop an XES file here</div>
+  <input id="file-input" type="file" accept=".xes" style="display:none">
+  <button id="btn-browse">Browse…</button>
+</div>
+
+<div id="output"><span style="color:#555">Load an XES file to begin.</span></div>
+
+<!-- eventlog stack: constants must be first -->
+<script src="js/eventlog/constants.js"></script>
+<script src="js/eventlog/event-log.js"></script>
+<script src="js/eventlog/xes-parser.js"></script>
+<script src="js/eventlog/log-util.js"></script>
+
+<script>
+// ── Display helpers ───────────────────────────────────────────────────────────
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  for (const c of children) {
+    if (typeof c === 'string') el.appendChild(document.createTextNode(c));
+    else if (c) el.appendChild(c);
+  }
+  return el;
+}
+
+function renderLog(log) {
+  const actKey = log.activityKey;
+  const tsKey  = log.timestampKey;
+  const summary = getLogSummary(log, actKey);
+  const variants = getVariantsSortedByCount(getUVCL(log, actKey));
+  const dfg      = getDFG(log, { activityKey: actKey });
+  const startActs = getStartActivities(log, actKey);
+  const endActs   = getEndActivities(log, actKey);
+
+  const out = document.getElementById('output');
+  out.innerHTML = '';
+
+  // ── Summary ─────────────────────────────────────────────────────────────
+  const sec1 = h('div', { class: 'section' }, h('h3', {}, 'Log summary'));
+  const kv = h('div', { class: 'kv' });
+  const kvPairs = [
+    ['Traces',              summary.traces],
+    ['Events',             summary.events],
+    ['Activities',         summary.activities],
+    ['Variants',           summary.variants],
+    ['Avg trace length',   summary.avgTraceLength],
+    ['Median trace length',summary.medianTraceLength],
+    ['Activity key',       actKey],
+    ['Case-ID key',        log.caseIdKey],
+  ];
+  for (const [k, v] of kvPairs) {
+    kv.append(h('span', {}, k), h('span', {}, String(v)));
+  }
+  sec1.append(kv);
+  out.append(sec1);
+
+  // ── Classifiers ──────────────────────────────────────────────────────────
+  if (Object.keys(log.classifiers).length > 0) {
+    const sec = h('div', { class: 'section' }, h('h3', {}, 'Classifiers'));
+    const kv2 = h('div', { class: 'kv' });
+    for (const [name, keys] of Object.entries(log.classifiers)) {
+      kv2.append(h('span', {}, name), h('span', {}, keys.join(', ')));
+    }
+    sec.append(kv2);
+    out.append(sec);
+  }
+
+  // ── Variants ─────────────────────────────────────────────────────────────
+  const sec2 = h('div', { class: 'section' }, h('h3', {}, `Variants (${variants.length})`));
+  const tbl  = h('table', {});
+  tbl.append(h('tr', {}, h('th', {}, '#'), h('th', {}, 'Count'), h('th', {}, 'Activity sequence')));
+  const maxCount = variants[0]?.[1] ?? 1;
+  variants.forEach(([key, count], i) => {
+    const acts = variantKeyToArray(key).join(' → ');
+    const bar  = h('span', { class: 'bar', style: `width:${Math.round(count/maxCount*120)}px` });
+    const countCell = h('td', {});
+    countCell.append(document.createTextNode(count), bar);
+    tbl.append(h('tr', {}, h('td', {}, String(i + 1)), countCell, h('td', {}, acts)));
+  });
+  sec2.append(tbl);
+  out.append(sec2);
+
+  // ── DFG ───────────────────────────────────────────────────────────────────
+  const dfgEntries = Array.from(dfg.graph.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 30);
+  const sec3 = h('div', { class: 'section' }, h('h3', {}, `Directly-follows edges (top ${dfgEntries.length})`));
+  const tbl2 = h('table', {});
+  tbl2.append(h('tr', {}, h('th', {}, 'From'), h('th', {}, 'To'), h('th', {}, 'Count')));
+  for (const [key, count] of dfgEntries) {
+    const [a, b] = dfgKeyParts(key);
+    tbl2.append(h('tr', {}, h('td', {}, a), h('td', {}, b), h('td', {}, String(count))));
+  }
+  sec3.append(tbl2);
+  out.append(sec3);
+
+  // ── Start / end activities ────────────────────────────────────────────────
+  const sec4 = h('div', { class: 'section' }, h('h3', {}, 'Start activities'));
+  const kv3  = h('div', { class: 'kv' });
+  for (const [act, count] of [...startActs.entries()].sort((a,b) => b[1]-a[1])) {
+    kv3.append(h('span', {}, act), h('span', {}, String(count)));
+  }
+  sec4.append(kv3);
+  out.append(sec4);
+
+  const sec5 = h('div', { class: 'section' }, h('h3', {}, 'End activities'));
+  const kv4  = h('div', { class: 'kv' });
+  for (const [act, count] of [...endActs.entries()].sort((a,b) => b[1]-a[1])) {
+    kv4.append(h('span', {}, act), h('span', {}, String(count)));
+  }
+  sec5.append(kv4);
+  out.append(sec5);
+
+  // ── First three traces ────────────────────────────────────────────────────
+  const sec6 = h('div', { class: 'section' }, h('h3', {}, 'First 3 traces'));
+  const tbl3 = h('table', {});
+  tbl3.append(h('tr', {}, h('th', {}, 'Case'), h('th', {}, 'Events'), h('th', {}, 'Activity sequence')));
+  let shown = 0;
+  for (const trace of log) {
+    if (shown++ >= 3) break;
+    const caseId = trace.attributes[log.caseIdKey] ?? '—';
+    const acts   = getVariantFromTrace(trace, actKey).join(' → ');
+    const ts0    = trace.at(0)?.get(tsKey);
+    const tsStr  = ts0 instanceof Date ? ts0.toISOString().slice(0,10) : '';
+    tbl3.append(h('tr', {},
+      h('td', {}, String(caseId)),
+      h('td', {}, `${trace.length}${tsStr ? ' · ' + tsStr : ''}`),
+      h('td', {}, acts)
+    ));
+  }
+  sec6.append(tbl3);
+  out.append(sec6);
+}
+
+// ── File loading ──────────────────────────────────────────────────────────────
+async function loadXes(source) {
+  const out = document.getElementById('output');
+  out.textContent = 'Parsing…';
+  try {
+    let log;
+    if (typeof source === 'string') {
+      log = await xesParser.parseUrl(source);
+    } else {
+      log = await xesParser.parseFile(source);
+    }
+    renderLog(log);
+  } catch (e) {
+    out.textContent = `Error: ${e.message}`;
+    console.error(e);
+  }
+}
+
+document.getElementById('btn-load-example').addEventListener('click', () => {
+  loadXes('data/running_example.xes');
+});
+
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('over');
+  const file = e.dataTransfer.files[0];
+  if (file) loadXes(file);
+});
+
+document.getElementById('btn-browse').addEventListener('click', () => {
+  document.getElementById('file-input').click();
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  if (e.target.files[0]) loadXes(e.target.files[0]);
+});
+</script>
+</body>
+</html>
