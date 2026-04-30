@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PM Explorer</title>
+  <style>
+    /* ── Reset ─────────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      display: flex; flex-direction: column;
+      background: #1e1e1e; color: #d4d4d4;
+      font-family: sans-serif; font-size: 13px;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────────── */
+    #header {
+      background: #2d2d2d;
+      border-bottom: 1px solid #444;
+      padding: 0 12px;
+      min-height: 42px;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+
+    #logo {
+      font-weight: bold; font-size: 14px; color: #9cdcfe;
+      padding-right: 12px; border-right: 1px solid #444; margin-right: 4px;
+    }
+
+    /* Main tab navigation */
+    #tabs { display: flex; gap: 0; }
+    #tabs button {
+      padding: 5px 14px; background: transparent; color: #aaa;
+      border: none; border-bottom: 2px solid transparent;
+      cursor: pointer; font-size: 13px; white-space: nowrap;
+    }
+    #tabs button:hover { color: #d4d4d4; }
+    #tabs button.active { color: #9cdcfe; border-bottom-color: #4682b4; }
+
+    /* File controls (right side) */
+    #file-controls {
+      margin-left: auto; display: flex; align-items: center; gap: 6px;
+    }
+    button {
+      padding: 4px 10px; cursor: pointer;
+      background: #3a3a3a; color: #d4d4d4;
+      border: 1px solid #555; border-radius: 3px;
+    }
+    button:hover { background: #4a4a4a; }
+
+    #drop-zone {
+      border: 1px dashed #555; border-radius: 3px;
+      padding: 4px 10px; color: #666; font-size: 12px;
+      cursor: default; white-space: nowrap; user-select: none;
+    }
+    #drop-zone.over { border-color: #9cdcfe; color: #9cdcfe; }
+
+    #log-badge {
+      font-size: 11px; color: #777; white-space: nowrap;
+      padding-left: 10px; border-left: 1px solid #444;
+      max-width: 280px; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* ── Content + panels ──────────────────────────────────────────────────── */
+    #content { flex: 1; position: relative; overflow: hidden; }
+
+    .panel {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+    }
+    .panel.hidden { display: none !important; }
+
+    /* ── Log panel ─────────────────────────────────────────────────────────── */
+    #panel-log {
+      overflow-y: auto;
+      padding: 12px 16px;
+      font-family: monospace; font-size: 13px;
+    }
+    #panel-log .section { margin-bottom: 20px; }
+    #panel-log .section h3 {
+      margin: 0 0 6px; color: #569cd6; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+    #panel-log table { border-collapse: collapse; width: 100%; }
+    #panel-log th, #panel-log td {
+      border: 1px solid #3a3a3a; padding: 3px 8px; text-align: left;
+    }
+    #panel-log th { background: #2d2d2d; color: #9cdcfe; }
+    #panel-log tr:nth-child(even) { background: #252525; }
+    #panel-log .kv {
+      display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px;
+    }
+    #panel-log .kv span:nth-child(odd)  { color: #9cdcfe; }
+    #panel-log .kv span:nth-child(even) { color: #ce9178; }
+    #panel-log .bar {
+      display: inline-block; background: #264f78;
+      height: 10px; vertical-align: middle; margin-left: 6px;
+    }
+    #log-placeholder { color: #555; padding: 20px; }
+
+    /* ── Canvas-panel chrome ───────────────────────────────────────────────── */
+    .panel-toolbar {
+      padding: 5px 10px; background: #2d2d2d; border-bottom: 1px solid #444;
+      display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+    }
+    .panel-toolbar .spacer { margin-left: auto; }
+    .panel-toolbar .info { font-size: 11px; color: #666; }
+
+    /* Example-selector tabs (used inside PNV panel toolbar) */
+    .ex-tabs { display: flex; }
+    .ex-tabs button {
+      padding: 3px 10px; border-radius: 0; border: 1px solid #555; font-size: 12px;
+    }
+    .ex-tabs button:first-child { border-radius: 3px 0 0 3px; }
+    .ex-tabs button:last-child  { border-radius: 0 3px 3px 0; border-left: none; }
+    .ex-tabs button.active { background: #4682b4; color: #fff; border-color: #4682b4; }
+
+    /* Canvas host */
+    .canvas-area {
+      flex: 1; position: relative; overflow: hidden; background: #fff;
+    }
+    .canvas-area canvas {
+      display: block; width: 100%; height: 100%; cursor: grab;
+    }
+    .canvas-area canvas:active { cursor: grabbing; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────────────── -->
+<div id="header">
+  <span id="logo">PM Explorer</span>
+
+  <nav id="tabs">
+    <button data-tab="log"   class="active">Log</button>
+    <button data-tab="alpha">Alpha Miner</button>
+    <button data-tab="net">Petri Net</button>
+  </nav>
+
+  <div id="file-controls">
+    <button id="btn-example">Load example</button>
+    <button id="btn-browse">Browse…</button>
+    <input id="file-input" type="file" accept=".xes" style="display:none">
+    <div id="drop-zone">or drop XES here</div>
+  </div>
+  <span id="log-badge"></span>
+</div>
+
+<!-- ── Content ─────────────────────────────────────────────────────────────── -->
+<div id="content">
+
+  <!-- Log panel -->
+  <div id="panel-log" class="panel">
+    <div id="log-placeholder">Load an XES file to begin.</div>
+  </div>
+
+  <!-- Alpha Miner panel -->
+  <div id="panel-alpha" class="panel hidden">
+    <div class="panel-toolbar">
+      <span id="alpha-status" class="info">Load a log and switch to this tab to discover a model.</span>
+      <span class="spacer"></span>
+      <span id="alpha-stats" class="info"></span>
+      <button id="btn-alpha-fit">Fit view</button>
+      <button id="btn-alpha-reset">Reset marking</button>
+    </div>
+    <div class="canvas-area">
+      <canvas id="alpha-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- Petri Net sandbox panel -->
+  <div id="panel-net" class="panel hidden">
+    <div class="panel-toolbar">
+      <div class="ex-tabs">
+        <button id="ex1" class="active">1 · Producer-consumer</button>
+        <button id="ex2">2 · Choice &amp; concurrency</button>
+      </div>
+      <button id="btn-net-fit">Fit view</button>
+      <button id="btn-net-step">Step</button>
+      <button id="btn-net-reset">Reset</button>
+      <span class="spacer"></span>
+      <span id="net-status" class="info"></span>
+    </div>
+    <div class="canvas-area">
+      <canvas id="net-canvas"></canvas>
+    </div>
+  </div>
+
+</div><!-- #content -->
+
+<!-- ── JS dependencies ─────────────────────────────────────────────────────── -->
+<script src="js/eventlog/constants.js"></script>
+<script src="js/eventlog/event-log.js"></script>
+<script src="js/eventlog/xes-parser.js"></script>
+<script src="js/eventlog/log-util.js"></script>
+<script src="js/pnv/model.js"></script>
+<script src="js/pnv/renderer.js"></script>
+<script src="js/pnv/viewer.js"></script>
+<script src="js/discovery/alpha-miner.js"></script>
+<!-- Bundled example log (avoids fetch dependency under file://) -->
+<script src="test/fixtures/running-example-xes.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared state
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _log      = null;   // EventLog | null
+let _logName  = null;   // string   | null
+let _logEpoch = 0;      // incremented each time a new log is loaded
+
+let _alphaEpoch   = -1;   // _logEpoch value of the last alpha run
+let _alphaTokens  = null; // Map<placeId, number> initial token snapshot
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tab system
+// ═══════════════════════════════════════════════════════════════════════════
+
+function switchTab(tab) {
+  // Show/hide panels
+  document.querySelectorAll('.panel').forEach(p =>
+    p.classList.toggle('hidden', p.id !== `panel-${tab}`)
+  );
+  // Update tab buttons
+  document.querySelectorAll('#tabs button').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === tab)
+  );
+
+  // Panel-specific activation
+  if (tab === 'alpha') {
+    if (_log && _alphaEpoch !== _logEpoch) {
+      runAlpha();                // auto-discover when log has changed
+    } else {
+      alphaViewer.fitView();    // just re-fit if already computed
+    }
+  }
+  if (tab === 'net') {
+    netViewer.fitView();
+  }
+  if (tab === 'log' && _log) {
+    renderLog(_log);
+  }
+}
+
+document.querySelectorAll('#tabs button').forEach(btn =>
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab))
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// XES file loading
+// ═══════════════════════════════════════════════════════════════════════════
+
+function onLogLoaded(log, name) {
+  _log      = log;
+  _logName  = name;
+  _logEpoch++;
+
+  // Update header badge
+  const sum = getLogSummary(log, log.activityKey);
+  document.getElementById('log-badge').textContent =
+    `${name}  ·  ${sum.traces} traces  ·  ${sum.activities} acts  ·  ${sum.variants} variants`;
+
+  // Refresh whichever panel is currently visible
+  const active = document.querySelector('#tabs button.active')?.dataset.tab;
+  if (active === 'log')   renderLog(log);
+  if (active === 'alpha') runAlpha();
+  // 'net' panel is independent of the log
+}
+
+async function loadXes(source) {
+  const badge = document.getElementById('log-badge');
+  badge.textContent = 'Parsing…';
+  try {
+    let log, name;
+    if (source === 'example') {
+      log  = xesParser.parse(RUNNING_EXAMPLE_XES);
+      name = 'running_example.xes';
+    } else if (typeof source === 'string') {
+      log  = await xesParser.parseUrl(source);
+      name = source.split('/').pop();
+    } else {
+      log  = await xesParser.parseFile(source);
+      name = source.name;
+    }
+    onLogLoaded(log, name);
+  } catch (e) {
+    badge.textContent = `Error: ${e.message}`;
+    console.error(e);
+  }
+}
+
+document.getElementById('btn-example').addEventListener('click',
+  () => loadXes('example'));
+
+document.getElementById('btn-browse').addEventListener('click',
+  () => document.getElementById('file-input').click());
+
+document.getElementById('file-input').addEventListener('change', e => {
+  if (e.target.files[0]) loadXes(e.target.files[0]);
+  e.target.value = '';
+});
+
+const _dz = document.getElementById('drop-zone');
+_dz.addEventListener('dragover', e => { e.preventDefault(); _dz.classList.add('over'); });
+_dz.addEventListener('dragleave', () => _dz.classList.remove('over'));
+_dz.addEventListener('drop', e => {
+  e.preventDefault();
+  _dz.classList.remove('over');
+  if (e.dataTransfer.files[0]) loadXes(e.dataTransfer.files[0]);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Log panel
+// ═══════════════════════════════════════════════════════════════════════════
+
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  for (const c of children) {
+    if (typeof c === 'string') el.appendChild(document.createTextNode(c));
+    else if (c) el.appendChild(c);
+  }
+  return el;
+}
+
+function renderLog(log) {
+  const panel  = document.getElementById('panel-log');
+  const actKey = log.activityKey;
+  const tsKey  = log.timestampKey;
+  const summary  = getLogSummary(log, actKey);
+  const variants = getVariantsSortedByCount(getUVCL(log, actKey));
+  const dfg      = getDFG(log, { activityKey: actKey });
+  const startActs = getStartActivities(log, actKey);
+  const endActs   = getEndActivities(log, actKey);
+
+  panel.innerHTML = '';
+
+  // ── Summary ────────────────────────────────────────────────────────────
+  const sec1 = h('div', { class: 'section' }, h('h3', {}, 'Log summary'));
+  const kv = h('div', { class: 'kv' });
+  for (const [k, v] of [
+    ['Traces',               summary.traces],
+    ['Events',               summary.events],
+    ['Activities',           summary.activities],
+    ['Variants',             summary.variants],
+    ['Avg trace length',     summary.avgTraceLength],
+    ['Median trace length',  summary.medianTraceLength],
+    ['Activity key',         actKey],
+    ['Case-ID key',          log.caseIdKey],
+  ]) {
+    kv.append(h('span', {}, k), h('span', {}, String(v)));
+  }
+  sec1.append(kv);
+  panel.append(sec1);
+
+  // ── Classifiers ────────────────────────────────────────────────────────
+  if (Object.keys(log.classifiers).length > 0) {
+    const sec = h('div', { class: 'section' }, h('h3', {}, 'Classifiers'));
+    const kv2 = h('div', { class: 'kv' });
+    for (const [name, keys] of Object.entries(log.classifiers)) {
+      kv2.append(h('span', {}, name), h('span', {}, keys.join(', ')));
+    }
+    sec.append(kv2);
+    panel.append(sec);
+  }
+
+  // ── Variants ───────────────────────────────────────────────────────────
+  const sec2 = h('div', { class: 'section' },
+    h('h3', {}, `Variants (${variants.length})`));
+  const tbl = h('table', {});
+  tbl.append(h('tr', {}, h('th', {}, '#'), h('th', {}, 'Count'), h('th', {}, 'Activity sequence')));
+  const maxCount = variants[0]?.[1] ?? 1;
+  variants.forEach(([key, count], i) => {
+    const acts  = variantKeyToArray(key).join(' → ');
+    const bar   = h('span', { class: 'bar', style: `width:${Math.round(count / maxCount * 120)}px` });
+    const cCell = h('td', {});
+    cCell.append(document.createTextNode(count), bar);
+    tbl.append(h('tr', {}, h('td', {}, String(i + 1)), cCell, h('td', {}, acts)));
+  });
+  sec2.append(tbl);
+  panel.append(sec2);
+
+  // ── DFG ────────────────────────────────────────────────────────────────
+  const dfgEntries = Array.from(dfg.graph.entries())
+    .sort((a, b) => b[1] - a[1]).slice(0, 30);
+  const sec3 = h('div', { class: 'section' },
+    h('h3', {}, `Directly-follows edges (top ${dfgEntries.length})`));
+  const tbl2 = h('table', {});
+  tbl2.append(h('tr', {}, h('th', {}, 'From'), h('th', {}, 'To'), h('th', {}, 'Count')));
+  for (const [key, count] of dfgEntries) {
+    const [a, b] = dfgKeyParts(key);
+    tbl2.append(h('tr', {}, h('td', {}, a), h('td', {}, b), h('td', {}, String(count))));
+  }
+  sec3.append(tbl2);
+  panel.append(sec3);
+
+  // ── Start / End activities ─────────────────────────────────────────────
+  const sec4 = h('div', { class: 'section' }, h('h3', {}, 'Start activities'));
+  const kv3  = h('div', { class: 'kv' });
+  for (const [act, count] of [...startActs.entries()].sort((a, b) => b[1] - a[1])) {
+    kv3.append(h('span', {}, act), h('span', {}, String(count)));
+  }
+  sec4.append(kv3);
+  panel.append(sec4);
+
+  const sec5 = h('div', { class: 'section' }, h('h3', {}, 'End activities'));
+  const kv4  = h('div', { class: 'kv' });
+  for (const [act, count] of [...endActs.entries()].sort((a, b) => b[1] - a[1])) {
+    kv4.append(h('span', {}, act), h('span', {}, String(count)));
+  }
+  sec5.append(kv4);
+  panel.append(sec5);
+
+  // ── Sample traces ──────────────────────────────────────────────────────
+  const sec6 = h('div', { class: 'section' }, h('h3', {}, 'First 3 traces'));
+  const tbl3 = h('table', {});
+  tbl3.append(h('tr', {},
+    h('th', {}, 'Case'), h('th', {}, 'Events'), h('th', {}, 'Activity sequence')));
+  let shown = 0;
+  for (const trace of log) {
+    if (shown++ >= 3) break;
+    const caseId = trace.attributes[log.caseIdKey] ?? '—';
+    const acts   = getVariantFromTrace(trace, actKey).join(' → ');
+    const ts0    = trace.at(0)?.get(tsKey);
+    const tsStr  = ts0 instanceof Date ? ts0.toISOString().slice(0, 10) : '';
+    tbl3.append(h('tr', {},
+      h('td', {}, String(caseId)),
+      h('td', {}, `${trace.length}${tsStr ? ' · ' + tsStr : ''}`),
+      h('td', {}, acts)
+    ));
+  }
+  sec6.append(tbl3);
+  panel.append(sec6);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Alpha Miner panel
+// ═══════════════════════════════════════════════════════════════════════════
+
+const alphaViewer = new PetriNetViewer(document.getElementById('alpha-canvas'), {
+  interactive: true,
+  onFire: (_id, _t, net) => { net.updateEnabledTransitions(); alphaViewer.render(); },
+});
+
+/**
+ * BFS layout: assigns x/y to all net nodes starting from sourceId,
+ * producing a left-to-right layered graph.
+ */
+function layoutNet(net, sourceId) {
+  const rank = new Map();
+  const queue = [sourceId];
+  rank.set(sourceId, 0);
+  let head = 0;
+  while (head < queue.length) {
+    const nodeId = queue[head++];
+    const r = rank.get(nodeId);
+    for (const arc of net.arcs.values()) {
+      if (arc.source === nodeId && !rank.has(arc.target)) {
+        rank.set(arc.target, r + 1);
+        queue.push(arc.target);
+      }
+    }
+  }
+  // Unreachable nodes get max+1
+  const maxR = rank.size > 0 ? Math.max(...rank.values()) : 0;
+  for (const id of [...net.places.keys(), ...net.transitions.keys()]) {
+    if (!rank.has(id)) rank.set(id, maxR + 1);
+  }
+
+  const byRank = new Map();
+  for (const [id, r] of rank) {
+    if (!byRank.has(r)) byRank.set(r, []);
+    byRank.get(r).push(id);
+  }
+
+  const X_GAP = 160, Y_GAP = 90;
+  const maxCol = Math.max(...[...byRank.values()].map(ids => ids.length), 1);
+  const totalH = maxCol * Y_GAP;
+
+  for (const [r, ids] of byRank) {
+    const groupH = ids.length * Y_GAP;
+    const startY = (totalH - groupH) / 2 + Y_GAP / 2;
+    ids.forEach((id, i) => {
+      const node = net.places.get(id) || net.transitions.get(id);
+      if (node) node.position = { x: 80 + r * X_GAP, y: startY + i * Y_GAP };
+    });
+  }
+}
+
+function runAlpha() {
+  if (!_log) return;
+  const result = applyAlphaMiner(_log);
+  _alphaEpoch  = _logEpoch;
+
+  layoutNet(result.net, result.source.id);
+  result.net.updateEnabledTransitions();
+
+  // Snapshot initial tokens for reset
+  _alphaTokens = new Map(
+    [...result.net.places.entries()].map(([id, p]) => [id, p.tokens])
+  );
+
+  alphaViewer.load(result.net);
+
+  document.getElementById('alpha-status').textContent = _logName ?? '';
+  document.getElementById('alpha-stats').textContent =
+    `${result.net.transitions.size} transitions · ` +
+    `${result.net.places.size} places · ` +
+    `${result.net.arcs.size} arcs`;
+}
+
+document.getElementById('btn-alpha-fit').addEventListener('click',
+  () => alphaViewer.fitView());
+
+document.getElementById('btn-alpha-reset').addEventListener('click', () => {
+  if (!_alphaTokens) return;
+  for (const [id, tokens] of _alphaTokens) {
+    const p = alphaViewer.net.places.get(id);
+    if (p) p.tokens = tokens;
+  }
+  alphaViewer.net.updateEnabledTransitions();
+  alphaViewer.render();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Petri Net sandbox panel
+// ═══════════════════════════════════════════════════════════════════════════
+
+const netViewer = new PetriNetViewer(document.getElementById('net-canvas'), {
+  interactive: true,
+  onFire: (id, t) => setNetStatus(`Fired: ${t.label || id}`),
+});
+
+function buildProducerConsumer() {
+  const net = new PetriNet(PetriNet.generateId(), 'Producer-consumer');
+  const p1 = new Place(PetriNet.generateId(), { x: 100, y: 200 }, 'start',  3);
+  const p2 = new Place(PetriNet.generateId(), { x: 300, y: 200 }, 'buffer', 0, 2);
+  const p3 = new Place(PetriNet.generateId(), { x: 500, y: 200 }, 'end',    0, null, 3);
+  const t1 = new Transition(PetriNet.generateId(), { x: 200, y: 200 }, 'produce');
+  const t2 = new Transition(PetriNet.generateId(), { x: 400, y: 200 }, 'consume');
+  net.addPlace(p1); net.addPlace(p2); net.addPlace(p3);
+  net.addTransition(t1); net.addTransition(t2);
+  net.addArc(new Arc(PetriNet.generateId(), p1.id, t1.id));
+  net.addArc(new Arc(PetriNet.generateId(), t1.id, p2.id));
+  net.addArc(new Arc(PetriNet.generateId(), p2.id, t2.id));
+  net.addArc(new Arc(PetriNet.generateId(), t2.id, p3.id));
+  return net;
+}
+
+function buildChoiceConcurrency() {
+  const net = new PetriNet(PetriNet.generateId(), 'Choice & concurrency');
+  const p_start  = new Place(PetriNet.generateId(), { x:  80, y: 220 }, 'start',   1);
+  const p_top    = new Place(PetriNet.generateId(), { x: 280, y: 120 }, 'p_top',   0);
+  const p_bot    = new Place(PetriNet.generateId(), { x: 280, y: 320 }, 'p_choice',0);
+  const p_a_done = new Place(PetriNet.generateId(), { x: 480, y: 120 }, 'p_A_done',0);
+  const p_b_done = new Place(PetriNet.generateId(), { x: 480, y: 320 }, 'p_B_done',0);
+  const p_end    = new Place(PetriNet.generateId(), { x: 680, y: 220 }, 'end',     0, null, 1);
+
+  const t_fork = new Transition(PetriNet.generateId(), { x: 180, y: 220 }, 'fork');
+  const t_A    = new Transition(PetriNet.generateId(), { x: 380, y: 120 }, 'task A');
+  const t_B    = new Transition(PetriNet.generateId(), { x: 380, y: 270 }, 'task B');
+  const t_C    = new Transition(PetriNet.generateId(), { x: 380, y: 370 }, 'task C');
+  const t_join = new Transition(PetriNet.generateId(), { x: 580, y: 220 }, 'join');
+
+  for (const p of [p_start, p_top, p_bot, p_a_done, p_b_done, p_end]) net.addPlace(p);
+  for (const t of [t_fork, t_A, t_B, t_C, t_join]) net.addTransition(t);
+
+  for (const [s, tgt] of [
+    [p_start.id, t_fork.id], [t_fork.id, p_top.id],  [t_fork.id, p_bot.id],
+    [p_top.id,   t_A.id],    [t_A.id,    p_a_done.id],
+    [p_bot.id,   t_B.id],    [t_B.id,    p_b_done.id],
+    [p_bot.id,   t_C.id],    [t_C.id,    p_b_done.id],
+    [p_a_done.id,t_join.id], [p_b_done.id,t_join.id], [t_join.id, p_end.id],
+  ]) net.addArc(new Arc(PetriNet.generateId(), s, tgt));
+
+  return net;
+}
+
+let _netActive    = 'ex1';
+let _netSnapshots = {};
+
+function loadNetExample(key) {
+  _netActive = key;
+  document.querySelectorAll('.ex-tabs button').forEach(b =>
+    b.classList.toggle('active', b.id === key)
+  );
+  const net = key === 'ex1' ? buildProducerConsumer() : buildChoiceConcurrency();
+  _netSnapshots[key] = net.toJSON();
+  netViewer.load(net);
+  setNetStatus('');
+}
+
+function setNetStatus(msg) {
+  document.getElementById('net-status').textContent = msg;
+}
+
+document.getElementById('ex1').addEventListener('click', () => loadNetExample('ex1'));
+document.getElementById('ex2').addEventListener('click', () => loadNetExample('ex2'));
+document.getElementById('btn-net-fit').addEventListener('click', () => netViewer.fitView());
+document.getElementById('btn-net-step').addEventListener('click', () => {
+  const net     = netViewer.net;
+  const enabled = [...net.transitions.keys()].filter(id => net.isTransitionEnabled(id));
+  if (!enabled.length) { setNetStatus('Deadlock — no transitions enabled'); return; }
+  const id = enabled[Math.floor(Math.random() * enabled.length)];
+  net.fireTransition(id);
+  net.updateEnabledTransitions();
+  netViewer.render();
+  setNetStatus(`Fired: ${net.transitions.get(id).label || id}`);
+});
+document.getElementById('btn-net-reset').addEventListener('click', () => {
+  netViewer.load(_netSnapshots[_netActive]);
+  setNetStatus('Reset');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Initialise
+// ═══════════════════════════════════════════════════════════════════════════
+
+loadNetExample('ex1');   // pre-load the sandbox so it's ready on first visit
+loadXes('example');      // auto-load the running example so the app feels alive
+</script>
+</body>
+</html>
