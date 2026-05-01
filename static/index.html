@@ -134,6 +134,7 @@
   <nav id="tabs">
     <button data-tab="log"   class="active">Log</button>
     <button data-tab="alpha">Alpha Miner</button>
+    <button data-tab="im">Inductive Miner</button>
   </nav>
 
   <div id="file-controls">
@@ -167,6 +168,19 @@
     </div>
   </div>
 
+  <!-- Inductive Miner panel -->
+  <div id="panel-im" class="panel hidden">
+    <div class="panel-toolbar">
+      <span id="im-status" class="info">Load a log and switch to this tab to discover a model.</span>
+      <span class="spacer"></span>
+      <span id="im-stats" class="info"></span>
+      <button id="btn-im-fit">Fit view</button>
+      <button id="btn-im-reset">Reset marking</button>
+    </div>
+    <div class="canvas-area">
+      <canvas id="im-canvas"></canvas>
+    </div>
+  </div>
 
 </div><!-- #content -->
 
@@ -179,6 +193,7 @@
 <script src="js/pnv/renderer.js"></script>
 <script src="js/pnv/viewer.js"></script>
 <script src="js/discovery/alpha-miner.js"></script>
+<script src="js/discovery/inductive-miner.js"></script>
 <!-- Bundled example log (avoids fetch dependency under file://) -->
 <script src="test/fixtures/running-example-xes.js"></script>
 
@@ -193,6 +208,9 @@ let _logEpoch = 0;      // incremented each time a new log is loaded
 
 let _alphaEpoch   = -1;   // _logEpoch value of the last alpha run
 let _alphaTokens  = null; // Map<placeId, number> initial token snapshot
+
+let _imEpoch      = -1;   // _logEpoch value of the last IM run
+let _imTokens     = null; // Map<placeId, number> initial token snapshot
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Tab system
@@ -216,8 +234,12 @@ function switchTab(tab) {
       alphaViewer.fitView();    // just re-fit if already computed
     }
   }
-  if (tab === 'net') {
-    netViewer.fitView();
+  if (tab === 'im') {
+    if (_log && _imEpoch !== _logEpoch) {
+      runInductive();            // auto-discover when log has changed
+    } else {
+      imViewer.fitView();
+    }
   }
   if (tab === 'log' && _log) {
     renderLog(_log);
@@ -246,7 +268,7 @@ function onLogLoaded(log, name) {
   const active = document.querySelector('#tabs button.active')?.dataset.tab;
   if (active === 'log')   renderLog(log);
   if (active === 'alpha') runAlpha();
-  // 'net' panel is independent of the log
+  if (active === 'im')    runInductive();
 }
 
 async function loadXes(source) {
@@ -505,100 +527,53 @@ document.getElementById('btn-alpha-reset').addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Petri Net sandbox panel
+// Inductive Miner panel
 // ═══════════════════════════════════════════════════════════════════════════
 
-const netViewer = new PetriNetViewer(document.getElementById('net-canvas'), {
+const imViewer = new PetriNetViewer(document.getElementById('im-canvas'), {
   interactive: true,
-  onFire: (id, t) => setNetStatus(`Fired: ${t.label || id}`),
+  onFire: (_id, _t, net) => { net.updateEnabledTransitions(); imViewer.render(); },
 });
 
-function buildProducerConsumer() {
-  const net = new PetriNet(PetriNet.generateId(), 'Producer-consumer');
-  const p1 = new Place(PetriNet.generateId(), { x: 100, y: 200 }, 'start',  3);
-  const p2 = new Place(PetriNet.generateId(), { x: 300, y: 200 }, 'buffer', 0, 2);
-  const p3 = new Place(PetriNet.generateId(), { x: 500, y: 200 }, 'end',    0, null, 3);
-  const t1 = new Transition(PetriNet.generateId(), { x: 200, y: 200 }, 'produce');
-  const t2 = new Transition(PetriNet.generateId(), { x: 400, y: 200 }, 'consume');
-  net.addPlace(p1); net.addPlace(p2); net.addPlace(p3);
-  net.addTransition(t1); net.addTransition(t2);
-  net.addArc(new Arc(PetriNet.generateId(), p1.id, t1.id));
-  net.addArc(new Arc(PetriNet.generateId(), t1.id, p2.id));
-  net.addArc(new Arc(PetriNet.generateId(), p2.id, t2.id));
-  net.addArc(new Arc(PetriNet.generateId(), t2.id, p3.id));
-  return net;
-}
+function runInductive() {
+  if (!_log) return;
+  const result = applyInductiveMiner(_log);
+  _imEpoch = _logEpoch;
 
-function buildChoiceConcurrency() {
-  const net = new PetriNet(PetriNet.generateId(), 'Choice & concurrency');
-  const p_start  = new Place(PetriNet.generateId(), { x:  80, y: 220 }, 'start',   1);
-  const p_top    = new Place(PetriNet.generateId(), { x: 280, y: 120 }, 'p_top',   0);
-  const p_bot    = new Place(PetriNet.generateId(), { x: 280, y: 320 }, 'p_choice',0);
-  const p_a_done = new Place(PetriNet.generateId(), { x: 480, y: 120 }, 'p_A_done',0);
-  const p_b_done = new Place(PetriNet.generateId(), { x: 480, y: 320 }, 'p_B_done',0);
-  const p_end    = new Place(PetriNet.generateId(), { x: 680, y: 220 }, 'end',     0, null, 1);
+  layoutNet(result.net, result.source.id);
+  result.net.updateEnabledTransitions();
 
-  const t_fork = new Transition(PetriNet.generateId(), { x: 180, y: 220 }, 'fork');
-  const t_A    = new Transition(PetriNet.generateId(), { x: 380, y: 120 }, 'task A');
-  const t_B    = new Transition(PetriNet.generateId(), { x: 380, y: 270 }, 'task B');
-  const t_C    = new Transition(PetriNet.generateId(), { x: 380, y: 370 }, 'task C');
-  const t_join = new Transition(PetriNet.generateId(), { x: 580, y: 220 }, 'join');
-
-  for (const p of [p_start, p_top, p_bot, p_a_done, p_b_done, p_end]) net.addPlace(p);
-  for (const t of [t_fork, t_A, t_B, t_C, t_join]) net.addTransition(t);
-
-  for (const [s, tgt] of [
-    [p_start.id, t_fork.id], [t_fork.id, p_top.id],  [t_fork.id, p_bot.id],
-    [p_top.id,   t_A.id],    [t_A.id,    p_a_done.id],
-    [p_bot.id,   t_B.id],    [t_B.id,    p_b_done.id],
-    [p_bot.id,   t_C.id],    [t_C.id,    p_b_done.id],
-    [p_a_done.id,t_join.id], [p_b_done.id,t_join.id], [t_join.id, p_end.id],
-  ]) net.addArc(new Arc(PetriNet.generateId(), s, tgt));
-
-  return net;
-}
-
-let _netActive    = 'ex1';
-let _netSnapshots = {};
-
-function loadNetExample(key) {
-  _netActive = key;
-  document.querySelectorAll('.ex-tabs button').forEach(b =>
-    b.classList.toggle('active', b.id === key)
+  // Snapshot initial tokens for reset
+  _imTokens = new Map(
+    [...result.net.places.entries()].map(([id, p]) => [id, p.tokens])
   );
-  const net = key === 'ex1' ? buildProducerConsumer() : buildChoiceConcurrency();
-  _netSnapshots[key] = net.toJSON();
-  netViewer.load(net);
-  setNetStatus('');
+
+  imViewer.load(result.net);
+
+  document.getElementById('im-status').textContent = _logName ?? '';
+  document.getElementById('im-stats').textContent =
+    `${result.net.transitions.size} transitions · ` +
+    `${result.net.places.size} places · ` +
+    `${result.net.arcs.size} arcs`;
 }
 
-function setNetStatus(msg) {
-  document.getElementById('net-status').textContent = msg;
-}
+document.getElementById('btn-im-fit').addEventListener('click',
+  () => imViewer.fitView());
 
-document.getElementById('ex1').addEventListener('click', () => loadNetExample('ex1'));
-document.getElementById('ex2').addEventListener('click', () => loadNetExample('ex2'));
-document.getElementById('btn-net-fit').addEventListener('click', () => netViewer.fitView());
-document.getElementById('btn-net-step').addEventListener('click', () => {
-  const net     = netViewer.net;
-  const enabled = [...net.transitions.keys()].filter(id => net.isTransitionEnabled(id));
-  if (!enabled.length) { setNetStatus('Deadlock — no transitions enabled'); return; }
-  const id = enabled[Math.floor(Math.random() * enabled.length)];
-  net.fireTransition(id);
-  net.updateEnabledTransitions();
-  netViewer.render();
-  setNetStatus(`Fired: ${net.transitions.get(id).label || id}`);
-});
-document.getElementById('btn-net-reset').addEventListener('click', () => {
-  netViewer.load(_netSnapshots[_netActive]);
-  setNetStatus('Reset');
+document.getElementById('btn-im-reset').addEventListener('click', () => {
+  if (!_imTokens) return;
+  for (const [id, tokens] of _imTokens) {
+    const p = imViewer.net.places.get(id);
+    if (p) p.tokens = tokens;
+  }
+  imViewer.net.updateEnabledTransitions();
+  imViewer.render();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Initialise
 // ═══════════════════════════════════════════════════════════════════════════
 
-loadNetExample('ex1');   // pre-load the sandbox so it's ready on first visit
 loadXes('example');      // auto-load the running example so the app feels alive
 </script>
 </body>

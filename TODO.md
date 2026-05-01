@@ -1,6 +1,4 @@
 
-Alpha miner -> Petri net
-Inductive miner -> Petri net
 DFG visualisation
 DFG miner -> DFG visualisation
 Option to suppress tokens and simulation
