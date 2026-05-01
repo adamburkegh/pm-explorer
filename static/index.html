@@ -477,7 +477,7 @@ function layoutNet(net, sourceId) {
     byRank.get(r).push(id);
   }
 
-  const X_GAP = 160, Y_GAP = 90;
+  const X_GAP = 100, Y_GAP = 90;
   const maxCol = Math.max(...[...byRank.values()].map(ids => ids.length), 1);
   const totalH = maxCol * Y_GAP;
 
