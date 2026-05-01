@@ -790,8 +790,8 @@ function _imRecurse(uvcl) {
 function _processTreeToPetriNet(tree) {
   const net = new PetriNet(PetriNet.generateId(), 'inductive_miner_net');
 
-  const source = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'start', 1);
-  const sink   = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'end',   0, null, 1);
+  const source = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'start', 0);
+  const sink   = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'end',   0, null, null);
   net.addPlace(source);
   net.addPlace(sink);
 
@@ -904,8 +904,7 @@ function applyInductiveMiner(log, params = {}) {
  * Apply the Inductive Miner directly to a UVCL (compressed log).
  *
  * @param {Map<string,number>} uvcl
- * @returns {{ net: PetriNet, initialMarking: Map<string,number>,
- *             finalMarking: Map<string,number>, source: Place, sink: Place,
+ * @returns {{ net: PetriNet, source: Place, sink: Place,
  *             processTree: ProcessTreeNode }}
  */
 function applyInductiveMinerUvcl(uvcl) {
@@ -913,12 +912,5 @@ function applyInductiveMinerUvcl(uvcl) {
   const { net, source, sink } = _processTreeToPetriNet(processTree);
   net.updateEnabledTransitions();
 
-  return {
-    net,
-    initialMarking: new Map([[source.id, 1]]),
-    finalMarking:   new Map([[sink.id, 1]]),
-    source,
-    sink,
-    processTree,
-  };
+  return { net, source, sink, processTree };
 }

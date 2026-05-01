@@ -117,6 +117,7 @@ describe('base case — single activity', () => {
     assert.equal(visibleTransitions(net).length, 1);
   });
   it('only A is enabled initially', () => {
+    resetNet(net, source);
     assert.deepEqual(enabledVisibleLabels(net), ['A']);
   });
   it('replay [A] places token in sink', () => {
@@ -171,6 +172,7 @@ describe('xor cut — two single-activity variants', () => {
     assert.equal(visibleTransitions(net).length, 2);
   });
   it('both A and B enabled initially', () => {
+    resetNet(net, source);
     assert.deepEqual(enabledVisibleLabels(net), ['A', 'B']);
   });
   it('replay [A] reaches sink', () => {
@@ -224,6 +226,7 @@ describe('sequence cut — simple three-step', () => {
     assert.deepEqual(tree.children.map(c => c.label), ['A', 'B', 'C']);
   });
   it('only A enabled initially', () => {
+    resetNet(net, source);
     assert.deepEqual(enabledVisibleLabels(net), ['A']);
   });
   it('replay [A,B,C] reaches sink', () => {
@@ -255,6 +258,7 @@ describe('sequence cut — inner XOR branch', () => {
     assert.deepEqual(ls, ['B', 'D']);
   });
   it('only A enabled initially', () => {
+    resetNet(net, source);
     assert.deepEqual(enabledVisibleLabels(net), ['A']);
   });
   it('replay [A,B,C] reaches sink', () => {
@@ -349,7 +353,7 @@ describe('concurrency cut — PAR inside SEQ  (a, par(b,c), d)', () => {
     assert.equal(tree.children[2].label, 'd');
   });
   it('only a enabled initially — no silent transitions required first', () => {
-    net.updateEnabledTransitions();
+    resetNet(net, source);
     const enabled = [...net.transitions.values()].filter(t => t.isEnabled);
     assert.equal(enabled.filter(t => t.silent).length, 0);
     assert.equal(enabled.length, 1);
@@ -384,6 +388,7 @@ describe('loop cut — leaf do and leaf redo', () => {
     assert.equal(tree.children[1].label, 'B');
   });
   it('only A enabled initially', () => {
+    resetNet(net, source);
     assert.deepEqual(enabledVisibleLabels(net), ['A']);
   });
   it('replay [A] reaches sink', () => {
@@ -418,6 +423,7 @@ describe('loop cut — sequence do-body, leaf redo', () => {
     assert.equal(tree.children[1].label, 'C');
   });
   it('only A enabled initially', () => {
+    resetNet(net, source);
     assert.deepEqual(enabledVisibleLabels(net), ['A']);
   });
   it('replay [A,B] reaches sink', () => {
@@ -447,6 +453,7 @@ describe('loop cut — two redo options', () => {
     assert.ok(redoLabels.includes('C'), `C missing; redo: ${redoLabels}`);
   });
   it('only A enabled initially', () => {
+    resetNet(net, source);
     assert.deepEqual(enabledVisibleLabels(net), ['A']);
   });
   it('replay [A] reaches sink', () => {
@@ -486,13 +493,13 @@ describe('petri net invariants — bipartite arcs and markings', () => {
           `arc ${arc.source}→${arc.target} violates bipartite property`);
       }
     });
-    it(`[${label}] source has 1 initial token`, () => {
+    it(`[${label}] source has no initial tokens`, () => {
       const { source } = applyInductiveMinerUvcl(uvcl);
-      assert.equal(source.tokens, 1);
+      assert.equal(source.tokens, 0);
     });
-    it(`[${label}] sink has finalMarking=1`, () => {
+    it(`[${label}] sink has no final marking`, () => {
       const { sink } = applyInductiveMinerUvcl(uvcl);
-      assert.equal(sink.finalMarking, 1);
+      assert.equal(sink.finalMarking, null);
     });
   }
 });
@@ -552,21 +559,21 @@ describe('applyInductiveMiner — running_example.xes', () => {
     assert.ok(endLabels.includes('reject request'));
   });
 
+  it('source has no initial tokens', () => {
+    assert.equal(source.tokens, 0);
+  });
+
+  it('sink has no final marking', () => {
+    assert.equal(sink.finalMarking, null);
+  });
+
   it('only register request is enabled initially — no silent first', () => {
-    net.updateEnabledTransitions();
+    resetNet(net, source);
     const enabled = [...net.transitions.values()].filter(t => t.isEnabled);
     assert.equal(enabled.filter(t => t.silent).length, 0,
       'silent transitions should not fire before register request');
     assert.equal(enabled.length, 1);
     assert.equal(enabled[0].label, 'register request');
-  });
-
-  it('source has 1 token', () => {
-    assert.equal(source.tokens, 1);
-  });
-
-  it('sink has finalMarking=1', () => {
-    assert.equal(sink.finalMarking, 1);
   });
 
   it('no arcs leave the sink', () => {

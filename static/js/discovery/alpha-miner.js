@@ -236,16 +236,14 @@ function applyAlphaMinerDfg(dfgGraph, startActivities, endActivities) {
     transitionMap.set(label, t);
   }
 
-  // Source place (starts with 1 token = initial marking)
-  const source = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'start', 1);
+  const source = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'start', 0);
   net.addPlace(source);
   for (const actName of startActivities.keys()) {
     const t = transitionMap.get(actName);
     if (t) net.addArc(new Arc(PetriNet.generateId(), source.id, t.id));
   }
 
-  // Sink place (finalMarking=1 so the renderer draws the double ring)
-  const sink = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'end', 0, null, 1);
+  const sink = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'end', 0, null, null);
   net.addPlace(sink);
   for (const actName of endActivities.keys()) {
     const t = transitionMap.get(actName);
@@ -268,8 +266,6 @@ function applyAlphaMinerDfg(dfgGraph, startActivities, endActivities) {
 
   return {
     net,
-    initialMarking: new Map([[source.id, 1]]),
-    finalMarking:   new Map([[sink.id, 1]]),
     /** @type {Place}           */ source,
     /** @type {Place}           */ sink,
     /** @type {Map<string,Transition>} */ transitionMap,

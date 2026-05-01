@@ -61,7 +61,7 @@ class Arc {
     this.weight = weight;
     this.type = type;
     this.points = points;
-    this.label = label || `${weight}`;
+    this.label = label;
   }
 }
 
