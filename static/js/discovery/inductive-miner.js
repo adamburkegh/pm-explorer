@@ -710,10 +710,17 @@ function _imRecurse(uvcl) {
   // ── Base case 2: single activity ──────────────────────────────────────────
   if (_isSingleActivity(uvcl)) {
     const act = [..._uvclAlphabet(uvcl)][0];
-    // Check if empty trace is also present → XOR(tau, act)
-    let hasEmpty = false;
+    let hasEmpty = false, hasMulti = false;
     for (const [key, count] of uvcl) {
-      if (count > 0 && variantKeyToArray(key).length === 0) { hasEmpty = true; break; }
+      if (count <= 0) continue;
+      const len = variantKeyToArray(key).length;
+      if (len === 0) hasEmpty = true;
+      if (len > 1)   hasMulti = true;
+    }
+    // Traces longer than 1 mean the activity self-loops → LOOP(act, τ)
+    if (hasMulti) {
+      const loop = makeNode('loop', [makeLeaf(act), makeLeaf(null)]);
+      return hasEmpty ? makeNode('xor', [makeLeaf(null), loop]) : loop;
     }
     if (hasEmpty) return makeNode('xor', [makeLeaf(null), makeLeaf(act)]);
     return makeLeaf(act);

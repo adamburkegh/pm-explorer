@@ -136,6 +136,67 @@ describe('base case — empty log (τ leaf)', () => {
   });
 });
 
+describe('base case — single activity self-loop', () => {
+  // [A], [A,A], [A,A,A] — A repeats → LOOP(A, τ)
+  const uvcl = makeUVCL([['A'], 1], [['A', 'A'], 1], [['A', 'A', 'A'], 1]);
+  const { net, source, sink, processTree: tree } = applyInductiveMinerUvcl(uvcl);
+
+  it('tree operator is loop', () => {
+    assert.equal(tree.operator, 'loop');
+  });
+  it('do-body is leaf A', () => {
+    assert.equal(tree.children[0].label, 'A');
+  });
+  it('redo is τ (silent leaf)', () => {
+    assert.equal(tree.children[1].operator, null);
+    assert.equal(tree.children[1].label, null);
+  });
+  it('firing A once lands token in sink', () => {
+    // Manual simulation: don't call fireSilents after the last visible step,
+    // because τ_redo is also enabled from pOut and would loop back.
+    resetNet(net, source);
+    assert.ok(fireLabel(net, 'A'));
+    assert.equal(sink.tokens, 1);
+  });
+  it('firing A, τ_redo, A loops and lands in sink', () => {
+    resetNet(net, source);
+    assert.ok(fireLabel(net, 'A'));       // first do: token in pOut
+    // fire the silent redo (τ_redo: pOut→pIn) to loop back
+    const silentEnabled = [...net.transitions.values()].find(t => t.silent && t.isEnabled);
+    assert.ok(silentEnabled, 'redo τ should be enabled after first A');
+    _fireT(net, silentEnabled);           // token back in pIn
+    assert.ok(fireLabel(net, 'A'));       // second do: token in pOut again
+    assert.equal(sink.tokens, 1);
+  });
+});
+
+describe('base case — single activity self-loop with optional exit', () => {
+  // [A], [A,A], [A,B], [A,A,B] → SEQ(LOOP(A,τ), XOR(τ,B))
+  const uvcl = makeUVCL([['A'], 1], [['A','A'], 1], [['A','A','A'], 1],
+                         [['A','B'], 1], [['A','A','B'], 1]);
+  const { processTree: tree } = applyInductiveMinerUvcl(uvcl);
+
+  it('top-level is sequence', () => {
+    assert.equal(tree.operator, 'sequence');
+  });
+  it('first child is a loop', () => {
+    assert.equal(tree.children[0].operator, 'loop');
+  });
+  it('loop do-body is A', () => {
+    assert.equal(tree.children[0].children[0].label, 'A');
+  });
+  it('loop redo is τ', () => {
+    assert.equal(tree.children[0].children[1].label, null);
+  });
+  it('second child is xor', () => {
+    assert.equal(tree.children[1].operator, 'xor');
+  });
+  it('xor contains τ and B', () => {
+    const labels = tree.children[1].children.map(c => c.label).sort();
+    assert.deepEqual(labels, [null, 'B'].sort((a,b) => String(a).localeCompare(String(b))));
+  });
+});
+
 describe('base case — empty trace + activity (EmptyTraces fall-through)', () => {
   const uvcl = makeUVCL([[], 2], [['A'], 3]);
   const { processTree: tree } = applyInductiveMinerUvcl(uvcl);
