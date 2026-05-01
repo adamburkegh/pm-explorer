@@ -230,7 +230,9 @@ class PetriNetRenderer {
       const tgt = this.petriNet.places.get(arc.target) || this.petriNet.transitions.get(arc.target);
       if (!src || !tgt) continue;
 
-      const { start, end } = this.calculateArcEndpoints(src, tgt);
+      const firstWpt = arc.points.length > 0 ? arc.points[0] : null;
+      const lastWpt  = arc.points.length > 0 ? arc.points[arc.points.length - 1] : null;
+      const { start, end } = this.calculateArcEndpoints(src, tgt, firstWpt, lastWpt);
 
       this.ctx.save();
       this.ctx.setLineDash(arc.type === "modifier" ? [5, 5] : []);
@@ -311,17 +313,23 @@ class PetriNetRenderer {
     );
   }
 
-  calculateArcEndpoints(source, target) {
+  // firstWpt / lastWpt: first and last waypoints of the arc, if any.
+  // When present, the source clips toward firstWpt (not target) and the target
+  // clips from lastWpt (not source), so routed polylines exit/enter nodes cleanly.
+  calculateArcEndpoints(source, target, firstWpt = null, lastWpt = null) {
+    const aimForStart = firstWpt ?? target.position;
+    const aimForEnd   = lastWpt  ?? source.position;
+
     let start = { ...source.position };
     let end   = { ...target.position };
 
     if (source instanceof Place) {
-      const a = Math.atan2(target.position.y - source.position.y, target.position.x - source.position.x);
+      const a = Math.atan2(aimForStart.y - source.position.y, aimForStart.x - source.position.x);
       start.x = source.position.x + Math.cos(a) * source.radius;
       start.y = source.position.y + Math.sin(a) * source.radius;
     } else {
-      const dx = target.position.x - source.position.x;
-      const dy = target.position.y - source.position.y;
+      const dx = aimForStart.x - source.position.x;
+      const dy = aimForStart.y - source.position.y;
       if (Math.abs(dx) * source.height > Math.abs(dy) * source.width) {
         const side = dx > 0 ? 1 : -1;
         start.x = source.position.x + side * source.width / 2;
@@ -334,12 +342,12 @@ class PetriNetRenderer {
     }
 
     if (target instanceof Place) {
-      const a = Math.atan2(target.position.y - source.position.y, target.position.x - source.position.x);
+      const a = Math.atan2(target.position.y - aimForEnd.y, target.position.x - aimForEnd.x);
       end.x = target.position.x - Math.cos(a) * target.radius;
       end.y = target.position.y - Math.sin(a) * target.radius;
     } else {
-      const dx = target.position.x - source.position.x;
-      const dy = target.position.y - source.position.y;
+      const dx = target.position.x - aimForEnd.x;
+      const dy = target.position.y - aimForEnd.y;
       if (Math.abs(dx) * target.height > Math.abs(dy) * target.width) {
         const side = dx > 0 ? 1 : -1;
         end.x = target.position.x - side * target.width / 2;
