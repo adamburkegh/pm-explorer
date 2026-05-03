@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "petrinet.schema.json",
+  "title": "Petri Net",
+  "description": "A Petri net model, inspired by PNML but expressed as JSON. Supports P/T nets, inhibitor nets, and is designed to extend to stochastic nets (SLPN, GSPN) without breaking changes.",
+  "type": "object",
+  "required": ["id", "name", "places", "transitions", "arcs"],
+  "properties": {
+    "schemaVersion": {
+      "description": "Schema version, for forward compatibility.",
+      "type": "string",
+      "const": "1.0"
+    },
+    "id": {
+      "description": "Unique identifier for this net instance.",
+      "type": "string"
+    },
+    "name": {
+      "description": "Human-readable name for the net.",
+      "type": "string"
+    },
+    "description": {
+      "description": "Optional free-text description or provenance note.",
+      "type": "string"
+    },
+    "netType": {
+      "description": "Declares the net dialect. Analogous to the PNML type URI. Consumers may use this to decide which fields are meaningful (e.g. transition.weight is relevant for slpn/gspn, transition.delay for timed nets).",
+      "type": "string",
+      "enum": ["ptnet", "inhibitor-net", "slpn", "gspn"],
+      "default": "ptnet"
+    },
+    "places": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/place" }
+    },
+    "transitions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/transition" }
+    },
+    "arcs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/arc" }
+    }
+  },
+  "$defs": {
+    "position": {
+      "description": "2D canvas coordinates. Present when layout information is available; may be omitted in semantics-only interchange (e.g. from a web service that does not compute layout).",
+      "type": "object",
+      "required": ["x", "y"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "place": {
+      "description": "A place in the Petri net. Corresponds to PNML <place>.",
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "description": "Unique identifier for this place. Referenced by arc.source and arc.target.",
+          "type": "string"
+        },
+        "label": {
+          "description": "Display name. Corresponds to PNML <name>.",
+          "type": "string",
+          "default": ""
+        },
+        "tokens": {
+          "description": "Initial marking: number of tokens in this place at the start. Corresponds to PNML <initialMarking>.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "capacity": {
+          "description": "Maximum tokens this place can hold. Null means unbounded. Corresponds to PNML <capacity> in capacity-net extensions.",
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "default": null
+        },
+        "finalMarking": {
+          "description": "Expected token count at termination, used for conformance checking. Null means no constraint. Corresponds to PNML <finalMarkings>.",
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "default": null
+        },
+        "position": { "$ref": "#/$defs/position" }
+      }
+    },
+    "transition": {
+      "description": "A transition in the Petri net. Corresponds to PNML <transition>.",
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "description": "Unique identifier for this transition. Referenced by arc.source and arc.target.",
+          "type": "string"
+        },
+        "label": {
+          "description": "Activity label. Empty string or absent on a silent transition. Corresponds to PNML <name>.",
+          "type": "string",
+          "default": ""
+        },
+        "silent": {
+          "description": "True for invisible (tau) transitions that do not correspond to an observable activity. When true, label is ignored for conformance purposes.",
+          "type": "boolean",
+          "default": false
+        },
+        "priority": {
+          "description": "Conflict resolution rank. Higher value fires first when multiple transitions compete for the same tokens. In GSPN semantics, immediate transitions (priority > 0) pre-empt timed transitions (priority = 0).",
+          "type": "integer",
+          "minimum": 0,
+          "default": 1
+        },
+        "delay": {
+          "description": "Deterministic firing delay in abstract time units. For stochastic/timed nets, prefer the 'firingDistribution' extension over this field.",
+          "type": "number",
+          "minimum": 0,
+          "default": 0
+        },
+        "weight": {
+          "description": "Stochastic firing weight. Used in SLPN and GSPN semantics: the probability of this transition firing (among all enabled transitions) is proportional to its weight. Ignored for plain P/T nets. Distinct from arc.weight, which is a token multiplicity.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0
+        },
+        "position": { "$ref": "#/$defs/position" }
+      }
+    },
+    "arc": {
+      "description": "A directed arc connecting a place to a transition, or a transition to a place. Corresponds to PNML <arc>.",
+      "type": "object",
+      "required": ["id", "source", "target"],
+      "properties": {
+        "id": {
+          "description": "Unique identifier for this arc.",
+          "type": "string"
+        },
+        "source": {
+          "description": "ID of the source node (place or transition). Must refer to an existing place or transition.",
+          "type": "string"
+        },
+        "target": {
+          "description": "ID of the target node (place or transition). Must be the opposite kind from source (place→transition or transition→place).",
+          "type": "string"
+        },
+        "weight": {
+          "description": "Token multiplicity: tokens consumed from (or produced into) the connected place when the transition fires. Corresponds to PNML <inscription>. Not meaningful for inhibitor or read arcs.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "type": {
+          "description": "Arc semantics. 'regular': standard consume/produce. 'inhibitor': transition is blocked when source place has tokens >= arc.weight. 'read': tests for tokens without consuming (also called a test arc). 'reset': empties the source place on firing. 'modifier': reserved for future use.",
+          "type": "string",
+          "enum": ["regular", "inhibitor", "read", "reset", "modifier"],
+          "default": "regular"
+        },
+        "label": {
+          "description": "Optional display annotation, typically the arc weight as a string when weight > 1.",
+          "type": "string",
+          "default": ""
+        },
+        "points": {
+          "description": "Ordered list of waypoints for curved or routed arc rendering. Empty means draw a straight line. Omitted in semantics-only interchange.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/position" },
+          "default": []
+        }
+      }
+    }
+  }
+}
