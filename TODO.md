@@ -10,6 +10,4 @@ BPMN layout follow-up (`pmws/bpmn_layout.py`):
 - Arc crossovers: same underlying problem as Petri net arc crossovers;
   needs a crossing-minimisation pass, not a quick fix
 
-Export to BPMN
-Export to Petri net
 
