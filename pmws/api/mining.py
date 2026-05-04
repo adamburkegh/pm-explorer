@@ -79,7 +79,15 @@ def inductive_bpmn():
     bpmn = pm4py.discover_bpmn_inductive(log, noise_threshold=_noise_threshold())
     layout_bpmn(bpmn)
     xml = mark_xor_gateways(get_xml_string(bpmn).decode("utf-8"))
-    return jsonify({"bpmn": xml})
+    nodes = list(bpmn.get_nodes())
+    flows = list(bpmn.get_flows())
+    return jsonify({
+        "bpmn": xml,
+        "simplicity": {
+            "nodes": len(nodes),
+            "constructs": len(nodes) + len(flows),
+        },
+    })
 
 
 @mining_bp.post("/api/mine/inductive/tree")
