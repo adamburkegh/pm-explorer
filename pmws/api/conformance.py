@@ -27,9 +27,8 @@ def fitness():
 
     result = pm4py.fitness_token_based_replay(log, net, im, fm)
     return jsonify({
-        "averageTraceFitness": result["average_trace_fitness"],
-        "percentageFittingTraces": result["percentage_of_fitting_traces"],
         "logFitness": result["log_fitness"],
+        "percentageFittingTraces": result["percentage_of_fitting_traces"] / 100.0,
     })
 
 

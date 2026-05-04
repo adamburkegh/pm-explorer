@@ -13,6 +13,7 @@ class PetriNetRenderer {
     this.zoomFactor = 1.0;
     this.minZoom = 0.1;
     this.maxZoom = 3.0;
+    this.showTokens = false;
 
     this.theme = {
       placeColor: '#ffffff',
@@ -162,7 +163,7 @@ class PetriNetRenderer {
         this.ctx.fillText(place.finalMarking.toString(), fmX, fmY);
       }
 
-      this.drawTokens(place);
+      if (this.showTokens) this.drawTokens(place);
 
       this.ctx.fillStyle = this.theme.textColor;
       this.ctx.font = '12px Arial';

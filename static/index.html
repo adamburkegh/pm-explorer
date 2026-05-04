@@ -47,6 +47,8 @@
       border: 1px solid #555; border-radius: 3px;
     }
     button:hover { background: #4a4a4a; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button:disabled:hover { background: #3a3a3a; }
 
     #drop-zone {
       border: 1px dashed #555; border-radius: 3px;
@@ -132,6 +134,24 @@
       display: block; width: 100%; height: 100%; cursor: grab;
     }
     .canvas-area canvas:active { cursor: grabbing; }
+
+    /* ── Conformance panel ─────────────────────────────────────────────────── */
+    #conf-content {
+      flex: 1; overflow-y: auto; padding: 20px;
+    }
+    .conf-message { color: #777; }
+    .conf-grid {
+      display: flex; flex-wrap: wrap; gap: 16px;
+    }
+    .conf-card {
+      background: #2d2d2d; border: 1px solid #444; border-radius: 4px;
+      padding: 16px 20px; min-width: 170px;
+    }
+    .conf-card .metric-value {
+      font-size: 30px; font-weight: bold; color: #9cdcfe; font-family: monospace;
+    }
+    .conf-card .metric-label { font-size: 12px; color: #d4d4d4; margin-top: 4px; }
+    .conf-card .metric-desc  { font-size: 11px; color: #777; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -144,6 +164,7 @@
     <button data-tab="log"   class="active">Log</button>
     <button data-tab="alpha">Alpha Miner</button>
     <button data-tab="im">Inductive Miner</button>
+    <button data-tab="conformance">Conformance</button>
   </nav>
 
   <div id="file-controls">
@@ -172,6 +193,7 @@
       <span id="alpha-stats" class="info"></span>
       <button id="btn-alpha-fit">Fit view</button>
       <button id="btn-alpha-reset">Reset marking</button>
+      <button id="btn-alpha-tokens">Tokens: off</button>
     </div>
     <div class="canvas-area">
       <canvas id="alpha-canvas"></canvas>
@@ -186,9 +208,27 @@
       <span id="im-stats" class="info"></span>
       <button id="btn-im-fit">Fit view</button>
       <button id="btn-im-reset">Reset marking</button>
+      <button id="btn-im-tokens">Tokens: off</button>
     </div>
     <div class="canvas-area">
       <canvas id="im-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- Conformance panel -->
+  <div id="panel-conformance" class="panel hidden">
+    <div class="panel-toolbar">
+      <span class="info">Source:</span>
+      <div class="ex-tabs" id="conf-source-tabs">
+        <button data-src="alpha">Alpha Miner</button>
+        <button data-src="im" class="active">Inductive Miner</button>
+      </div>
+      <button id="btn-run-conformance">Run</button>
+      <span class="spacer"></span>
+      <span id="conf-toolbar-status" class="info"></span>
+    </div>
+    <div id="conf-content">
+      <div class="conf-message">Load a log and discover a model to check conformance.</div>
     </div>
   </div>
 
@@ -214,6 +254,7 @@
 
 let _log      = null;   // EventLog | null
 let _logName  = null;   // string   | null
+let _logFile  = null;   // File | Blob | null  — kept for backend POSTs
 let _logEpoch = 0;      // incremented each time a new log is loaded
 
 let _alphaEpoch   = -1;   // _logEpoch value of the last alpha run
@@ -221,6 +262,9 @@ let _alphaTokens  = null; // Map<placeId, number> initial token snapshot
 
 let _imEpoch      = -1;   // _logEpoch value of the last IM run
 let _imTokens     = null; // Map<placeId, number> initial token snapshot
+
+let _backendConnected = false;
+let _confSource       = 'im';  // 'alpha' | 'im'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Tab system
@@ -254,6 +298,9 @@ function switchTab(tab) {
   if (tab === 'log' && _log) {
     renderLog(_log);
   }
+  if (tab === 'conformance') {
+    updateConformanceReady();
+  }
 }
 
 document.querySelectorAll('#tabs button').forEach(btn =>
@@ -274,6 +321,9 @@ function onLogLoaded(log, name) {
   document.getElementById('log-badge').textContent =
     `${name}  ·  ${sum.traces} traces  ·  ${sum.activities} acts  ·  ${sum.variants} variants`;
 
+  setConfContent('<div class="conf-message">Load a log and discover a model to check conformance.</div>');
+  updateConformanceReady();
+
   // Refresh whichever panel is currently visible
   const active = document.querySelector('#tabs button.active')?.dataset.tab;
   if (active === 'log')   renderLog(log);
@@ -289,11 +339,16 @@ async function loadXes(source) {
     if (source === 'example') {
       log  = xesParser.parse(RUNNING_EXAMPLE_XES);
       name = 'running_example.xes';
+      _logFile = new Blob([RUNNING_EXAMPLE_XES], { type: 'application/xml' });
     } else if (typeof source === 'string') {
-      log  = await xesParser.parseUrl(source);
+      const resp = await fetch(source);
+      const text = await resp.text();
+      _logFile = new Blob([text], { type: 'application/xml' });
+      log  = xesParser.parse(text);
       name = source.split('/').pop();
     } else {
       log  = await xesParser.parseFile(source);
+      _logFile = source;
       name = source.name;
     }
     onLogLoaded(log, name);
@@ -515,6 +570,7 @@ function runAlpha() {
   );
 
   alphaViewer.load(result.net);
+  updateConformanceReady();
 
   document.getElementById('alpha-status').textContent = _logName ?? '';
   document.getElementById('alpha-stats').textContent =
@@ -525,6 +581,12 @@ function runAlpha() {
 
 document.getElementById('btn-alpha-fit').addEventListener('click',
   () => alphaViewer.fitView());
+
+document.getElementById('btn-alpha-tokens').addEventListener('click', function() {
+  const show = !alphaViewer.renderer.showTokens;
+  alphaViewer.setShowTokens(show);
+  this.textContent = `Tokens: ${show ? 'on' : 'off'}`;
+});
 
 document.getElementById('btn-alpha-reset').addEventListener('click', () => {
   if (!_alphaTokens) return;
@@ -559,6 +621,7 @@ function runInductive() {
   );
 
   imViewer.load(result.net);
+  updateConformanceReady();
 
   document.getElementById('im-status').textContent = _logName ?? '';
   document.getElementById('im-stats').textContent =
@@ -570,6 +633,12 @@ function runInductive() {
 document.getElementById('btn-im-fit').addEventListener('click',
   () => imViewer.fitView());
 
+document.getElementById('btn-im-tokens').addEventListener('click', function() {
+  const show = !imViewer.renderer.showTokens;
+  imViewer.setShowTokens(show);
+  this.textContent = `Tokens: ${show ? 'on' : 'off'}`;
+});
+
 document.getElementById('btn-im-reset').addEventListener('click', () => {
   if (!_imTokens) return;
   for (const [id, tokens] of _imTokens) {
@@ -579,6 +648,75 @@ document.getElementById('btn-im-reset').addEventListener('click', () => {
   imViewer.net.updateEnabledTransitions();
   imViewer.render();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Conformance panel
+// ═══════════════════════════════════════════════════════════════════════════
+
+document.querySelectorAll('#conf-source-tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    _confSource = btn.dataset.src;
+    document.querySelectorAll('#conf-source-tabs button').forEach(b =>
+      b.classList.toggle('active', b.dataset.src === _confSource)
+    );
+  });
+});
+
+function updateConformanceReady() {
+  const status = document.getElementById('conf-toolbar-status');
+  const btn    = document.getElementById('btn-run-conformance');
+  let reason = '';
+  if (!_backendConnected)                                               reason = 'Backend not connected';
+  else if (!_logFile)                                                   reason = 'Load a log first';
+  else if (_confSource === 'alpha' ? _alphaEpoch === -1 : _imEpoch === -1) reason = 'Run the selected miner first';
+  status.textContent = reason;
+  btn.disabled = !!reason;
+}
+
+function setConfContent(html) {
+  document.getElementById('conf-content').innerHTML = html;
+}
+
+async function runConformanceFitness() {
+  updateConformanceReady();
+  if (!_backendConnected) return;
+  if (!_logFile)          return;
+  const netReady = _confSource === 'alpha' ? _alphaEpoch !== -1 : _imEpoch !== -1;
+  if (!netReady)          return;
+
+  const viewer = _confSource === 'alpha' ? alphaViewer : imViewer;
+  setConfContent('<div class="conf-message">Running…</div>');
+
+  const fd = new FormData();
+  fd.append('xes_file', _logFile, 'log.xes');
+  fd.append('net', viewer.net.toJSON());
+
+  try {
+    const resp = await fetch('/api/conformance/fitness', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    renderConfResults(data);
+  } catch (e) {
+    setConfContent(`<div class="conf-message">Error: ${e.message}</div>`);
+  }
+}
+
+function renderConfResults(fitness) {
+  const pct = v => `${Math.round(v * 100)}%`;
+  const metrics = [
+    { value: pct(fitness.logFitness),              label: 'Fitness',        desc: 'Token-based replay' },
+    { value: pct(fitness.percentageFittingTraces), label: 'Fitting traces', desc: 'Traces replaying without missing tokens' },
+  ];
+  const cards = metrics.map(m => `
+    <div class="conf-card">
+      <div class="metric-value">${m.value}</div>
+      <div class="metric-label">${m.label}</div>
+      <div class="metric-desc">${m.desc}</div>
+    </div>`).join('');
+  setConfContent(`<div class="conf-grid">${cards}</div>`);
+}
+
+document.getElementById('btn-run-conformance').addEventListener('click', runConformanceFitness);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Backend status probe
@@ -593,16 +731,20 @@ async function checkBackendStatus() {
     clearTimeout(timeout);
     if (resp.ok) {
       const data = await resp.json();
+      _backendConnected = true;
       el.className = 'connected';
       el.title = `Backend connected · pm4py ${data.pm4py}`;
     } else {
+      _backendConnected = false;
       el.className = 'disconnected';
       el.title = `Backend error (HTTP ${resp.status})`;
     }
   } catch {
+    _backendConnected = false;
     el.className = 'disconnected';
     el.title = 'Backend not reachable';
   }
+  updateConformanceReady();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
