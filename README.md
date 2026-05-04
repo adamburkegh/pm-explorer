@@ -1,8 +1,10 @@
 # Process Mining Explorer
 
-Process Mining Explorer is a standalone, in-browser, introduction to process mining and analytics. It shows fundamental data structures, process models and algorithms.
+Process Mining Explorer is an in-browser, introduction to process mining and analytics. It shows fundamental data structures, process models and algorithms.
 
-It is implemented in HTML and Javascript.
+Basic features are available purely in browser. More extended features require running a simple local webserver, bundled with the application.
+
+It is implemented in HTML, Javascript, and Python.
 
 # Sources
 
@@ -14,5 +16,7 @@ The Petri net viewer is adapted directly from [YAPNE](https://github.com/chimenk
 
 ## Process Mining 
 
-A number of process mining data structures and algorithms have been translated from [pm4py](https://github.com/process-intelligence-solutions/pm4py), including event log parsing and direct follow graps.
+A number of process mining data structures and algorithms have been translated from, or directly use, [pm4py](https://github.com/process-intelligence-solutions/pm4py), including event log parsing and the Inductive Miner.
+
+
 
