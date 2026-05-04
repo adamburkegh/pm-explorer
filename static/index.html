@@ -677,7 +677,7 @@ function setConfContent(html) {
   document.getElementById('conf-content').innerHTML = html;
 }
 
-async function runConformanceFitness() {
+async function runConformance() {
   updateConformanceReady();
   if (!_backendConnected) return;
   if (!_logFile)          return;
@@ -687,25 +687,33 @@ async function runConformanceFitness() {
   const viewer = _confSource === 'alpha' ? alphaViewer : imViewer;
   setConfContent('<div class="conf-message">Running…</div>');
 
-  const fd = new FormData();
-  fd.append('xes_file', _logFile, 'log.xes');
-  fd.append('net', viewer.net.toJSON());
+  const makeFormData = () => {
+    const fd = new FormData();
+    fd.append('xes_file', _logFile, 'log.xes');
+    fd.append('net', viewer.net.toJSON());
+    return fd;
+  };
 
   try {
-    const resp = await fetch('/api/conformance/fitness', { method: 'POST', body: fd });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    renderConfResults(data);
+    const [fitnessResp, precisionResp] = await Promise.all([
+      fetch('/api/conformance/fitness',   { method: 'POST', body: makeFormData() }),
+      fetch('/api/conformance/precision', { method: 'POST', body: makeFormData() }),
+    ]);
+    if (!fitnessResp.ok)   throw new Error(`Fitness: HTTP ${fitnessResp.status}`);
+    if (!precisionResp.ok) throw new Error(`Precision: HTTP ${precisionResp.status}`);
+    const [fitness, precision] = await Promise.all([fitnessResp.json(), precisionResp.json()]);
+    renderConfResults({ ...fitness, ...precision });
   } catch (e) {
     setConfContent(`<div class="conf-message">Error: ${e.message}</div>`);
   }
 }
 
-function renderConfResults(fitness) {
+function renderConfResults(data) {
   const pct = v => `${Math.round(v * 100)}%`;
   const metrics = [
-    { value: pct(fitness.logFitness),              label: 'Fitness',        desc: 'Token-based replay' },
-    { value: pct(fitness.percentageFittingTraces), label: 'Fitting traces', desc: 'Traces replaying without missing tokens' },
+    { value: pct(data.logFitness),              label: 'Fitness',        desc: 'Token-based replay' },
+    { value: pct(data.percentageFittingTraces), label: 'Fitting traces', desc: 'Traces replaying without missing tokens' },
+    { value: pct(data.precision),               label: 'Precision',      desc: 'Token-based replay' },
   ];
   const cards = metrics.map(m => `
     <div class="conf-card">
@@ -716,7 +724,7 @@ function renderConfResults(fitness) {
   setConfContent(`<div class="conf-grid">${cards}</div>`);
 }
 
-document.getElementById('btn-run-conformance').addEventListener('click', runConformanceFitness);
+document.getElementById('btn-run-conformance').addEventListener('click', runConformance);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Backend status probe
