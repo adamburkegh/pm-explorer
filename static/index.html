@@ -61,6 +61,15 @@
       max-width: 280px; overflow: hidden; text-overflow: ellipsis;
     }
 
+    #backend-status {
+      font-size: 11px; white-space: nowrap;
+      padding-left: 10px; border-left: 1px solid #444;
+      display: flex; align-items: center; gap: 4px;
+    }
+    #backend-status::before { content: '●'; font-size: 8px; }
+    #backend-status.connected    { color: #4ec94e; }
+    #backend-status.disconnected { color: #555; }
+
     /* ── Content + panels ──────────────────────────────────────────────────── */
     #content { flex: 1; position: relative; overflow: hidden; }
 
@@ -144,6 +153,7 @@
     <div id="drop-zone">or drop XES here</div>
   </div>
   <span id="log-badge"></span>
+  <span id="backend-status" class="disconnected" title="Backend not reachable">backend</span>
 </div>
 
 <!-- ── Content ─────────────────────────────────────────────────────────────── -->
@@ -571,9 +581,35 @@ document.getElementById('btn-im-reset').addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Backend status probe
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function checkBackendStatus() {
+  const el = document.getElementById('backend-status');
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const resp = await fetch('/api/status', { signal: controller.signal });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const data = await resp.json();
+      el.className = 'connected';
+      el.title = `Backend connected · pm4py ${data.pm4py}`;
+    } else {
+      el.className = 'disconnected';
+      el.title = `Backend error (HTTP ${resp.status})`;
+    }
+  } catch {
+    el.className = 'disconnected';
+    el.title = 'Backend not reachable';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Initialise
 // ═══════════════════════════════════════════════════════════════════════════
 
+checkBackendStatus();
 loadXes('example');      // auto-load the running example so the app feels alive
 </script>
 </body>
