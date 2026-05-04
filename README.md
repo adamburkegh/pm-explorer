@@ -6,6 +6,36 @@ Basic features are available purely in browser. More extended features require r
 
 It is implemented in HTML, Javascript, and Python.
 
+# Installation
+
+Download the ZIP file and unpack to a local directory.
+
+## Basic installation
+
+That's it.
+
+## Extended installation (local webserver)
+
+Assuming Python is available. In your install directory, create and activate a virtual environment (venv).
+
+```
+python -m venv pme       # ie, create a virtual environment
+. pme/Scripts/activate   # On Windows: pme\Scripts\activate.bat
+```
+
+Install Python requirements
+```
+pip install -r requirements.txt
+```
+
+# Running
+
+For basic features, just open `static/index.html` in a web browser.
+
+For the server side features, such as process conformance metrics, in the venv,
+
+`python -m pmws.server`
+
 # Sources
 
 This project has made heavy use of copy-paste forks and translations of existing open source tools. 
