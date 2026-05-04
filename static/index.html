@@ -157,6 +157,12 @@
     #conf-content th { background: #2d2d2d; color: #9cdcfe; }
     #conf-content tr:nth-child(even) { background: #252525; }
     #conf-content td:last-child { font-family: monospace; color: #9cdcfe; }
+    #conf-content tr.conf-section td {
+      background: #2d2d2d; color: #888; font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.05em; padding: 3px 12px; border-bottom: none;
+    }
+    #conf-content tr.conf-dim td { color: #555; }
+    #conf-content tr.conf-dim td:last-child { color: #555; }
   </style>
 </head>
 <body>
@@ -276,9 +282,10 @@ let _alphaTokens  = null; // Map<placeId, number> initial token snapshot
 
 let _imEpoch      = -1;   // _logEpoch value of the last IM run
 let _imTokens     = null; // Map<placeId, number> initial token snapshot
-let _imBpmnEpoch  = -1;   // _logEpoch value of the last BPMN fetch
-let _imView       = 'petri'; // 'petri' | 'bpmn'
-let _imBpmnViewer = null; // bpmn-js NavigatedViewer instance
+let _imBpmnEpoch      = -1;   // _logEpoch value of the last BPMN fetch
+let _imBpmnSimplicity = null; // {nodes, constructs} from last BPMN fetch, or null
+let _imView           = 'petri'; // 'petri' | 'bpmn'
+let _imBpmnViewer     = null; // bpmn-js NavigatedViewer instance
 
 let _backendConnected = false;
 let _confSource       = 'im';  // 'alpha' | 'im'
@@ -338,6 +345,7 @@ function onLogLoaded(log, name) {
   document.getElementById('log-badge').textContent =
     `${name}  ·  ${sum.traces} traces  ·  ${sum.activities} acts  ·  ${sum.variants} variants`;
 
+  _imBpmnSimplicity = null;
   setConfContent('<div class="conf-message">Load a log and discover a model to check conformance.</div>');
   updateConformanceReady();
 
@@ -710,7 +718,8 @@ async function runImBpmn() {
   try {
     const resp = await fetch('/api/mine/inductive/bpmn', { method: 'POST', body: fd });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const { bpmn } = await resp.json();
+    const { bpmn, simplicity } = await resp.json();
+    _imBpmnSimplicity = simplicity ?? null;
 
     area.textContent = '';
     if (!_imBpmnViewer) {
@@ -784,23 +793,45 @@ async function runConformance() {
     if (!fitnessResp.ok)   throw new Error(`Fitness: HTTP ${fitnessResp.status}`);
     if (!precisionResp.ok) throw new Error(`Precision: HTTP ${precisionResp.status}`);
     const [fitness, precision] = await Promise.all([fitnessResp.json(), precisionResp.json()]);
-    renderConfResults({ ...fitness, ...precision });
+    const net = viewer.net;
+    const pnSimplicity = {
+      nodes:      net.places.size + net.transitions.size,
+      constructs: net.places.size + net.transitions.size + net.arcs.size,
+    };
+    const bpmnSimplicity = _confSource === 'im' ? _imBpmnSimplicity : undefined;
+    renderConfResults({ ...fitness, ...precision }, pnSimplicity, bpmnSimplicity);
   } catch (e) {
     setConfContent(`<div class="conf-message">Error: ${e.message}</div>`);
   }
 }
 
-function renderConfResults(data) {
+function renderConfResults(data, pnSimplicity, bpmnSimplicity) {
   const pct = v => `${Math.round(v * 100)}%`;
-  const metrics = [
-    { label: 'Fitness',        desc: 'Token-based replay',                       value: pct(data.logFitness) },
-    { label: 'Fitting traces', desc: 'Traces replaying without missing tokens',   value: pct(data.percentageFittingTraces) },
-    { label: 'Precision',      desc: 'Token-based replay',                        value: pct(data.precision) },
-  ];
-  const rows = metrics.map(m =>
-    `<tr><td>${m.label}</td><td>${m.desc}</td><td>${m.value}</td></tr>`
-  ).join('');
-  setConfContent(`<table><thead><tr><th>Metric</th><th>Method</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>`);
+  const section = label =>
+    `<tr class="conf-section"><td colspan="3">${label}</td></tr>`;
+  const row = (label, desc, value, dim) =>
+    `<tr${dim ? ' class="conf-dim"' : ''}><td>${label}</td><td>${desc}</td><td>${value}</td></tr>`;
+
+  const bpmnPending = bpmnSimplicity === null;
+  const na = '—';
+
+  const rows = [
+    section('Fitness'),
+    row('Trace fitness',    'Token-based replay',                     pct(data.logFitness)),
+    row('Fitting traces',   'Traces replaying without missing tokens', pct(data.percentageFittingTraces)),
+    section('Precision'),
+    row('Precision',        'Token-based replay',                     pct(data.precision)),
+    section('Simplicity · Petri net'),
+    row('Nodes',            'Places + transitions',                   pnSimplicity.nodes),
+    row('Constructs',       'Nodes + arcs',                           pnSimplicity.constructs),
+    ...(bpmnSimplicity !== undefined ? [
+      section('Simplicity · BPMN'),
+      row('Nodes',      'Tasks + gateways + events',        bpmnPending ? na : bpmnSimplicity.nodes,      bpmnPending),
+      row('Constructs', 'Nodes + sequence flows',           bpmnPending ? na : bpmnSimplicity.constructs, bpmnPending),
+    ] : []),
+  ].join('');
+
+  setConfContent(`<table class="conf-table"><thead><tr><th>Metric</th><th>Method</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>`);
 }
 
 document.getElementById('btn-run-conformance').addEventListener('click', runConformance);
