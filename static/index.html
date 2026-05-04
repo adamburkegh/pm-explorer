@@ -205,6 +205,7 @@
       <button id="btn-alpha-fit">Fit view</button>
       <button id="btn-alpha-reset">Reset marking</button>
       <button id="btn-alpha-tokens">Tokens: off</button>
+      <button id="btn-alpha-export-pnml" disabled>Export PNML</button>
     </div>
     <div class="canvas-area">
       <canvas id="alpha-canvas"></canvas>
@@ -225,6 +226,7 @@
       <button id="btn-im-fit">Fit view</button>
       <button id="btn-im-reset">Reset marking</button>
       <button id="btn-im-tokens">Tokens: off</button>
+      <button id="btn-im-export-pnml" disabled>Export PNML</button>
       <button id="btn-im-export-bpmn" disabled>Export BPMN</button>
     </div>
     <div id="im-view-source" class="view-source-bar">Petri net &middot; computed locally</div>
@@ -262,6 +264,7 @@
 <script src="js/pnv/model.js"></script>
 <script src="js/pnv/renderer.js"></script>
 <script src="js/pnv/viewer.js"></script>
+<script src="js/pnv/pnml-export.js"></script>
 <script src="js/discovery/alpha-miner.js"></script>
 <script src="js/discovery/inductive-miner.js"></script>
 <script src="js/lib/bpmn-js/bpmn-navigated-viewer.production.min.js"></script>
@@ -599,6 +602,7 @@ function runAlpha() {
   );
 
   alphaViewer.load(result.net);
+  document.getElementById('btn-alpha-export-pnml').disabled = false;
   updateConformanceReady();
 
   document.getElementById('alpha-status').textContent = _logName ?? '';
@@ -627,6 +631,17 @@ document.getElementById('btn-alpha-reset').addEventListener('click', () => {
   alphaViewer.render();
 });
 
+document.getElementById('btn-alpha-export-pnml').addEventListener('click', () => {
+  if (!alphaViewer.net) return;
+  const stem = (_logName ?? 'model').replace(/\.xes$/i, '');
+  const xml = toPNML(alphaViewer.net, _alphaTokens, stem);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }));
+  a.download = stem + '.pnml';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Inductive Miner panel
 // ═══════════════════════════════════════════════════════════════════════════
@@ -650,6 +665,7 @@ function runInductive() {
   );
 
   imViewer.load(result.net);
+  document.getElementById('btn-im-export-pnml').disabled = false;
   updateConformanceReady();
 
   document.getElementById('im-status').textContent = _logName ?? '';
@@ -678,6 +694,17 @@ document.getElementById('btn-im-reset').addEventListener('click', () => {
   }
   imViewer.net.updateEnabledTransitions();
   imViewer.render();
+});
+
+document.getElementById('btn-im-export-pnml').addEventListener('click', () => {
+  if (!imViewer.net) return;
+  const stem = (_logName ?? 'model').replace(/\.xes$/i, '');
+  const xml = toPNML(imViewer.net, _imTokens, stem);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }));
+  a.download = stem + '.pnml';
+  a.click();
+  URL.revokeObjectURL(a.href);
 });
 
 document.getElementById('btn-im-export-bpmn').addEventListener('click', () => {
