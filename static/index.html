@@ -225,6 +225,7 @@
       <button id="btn-im-fit">Fit view</button>
       <button id="btn-im-reset">Reset marking</button>
       <button id="btn-im-tokens">Tokens: off</button>
+      <button id="btn-im-export-bpmn" disabled>Export BPMN</button>
     </div>
     <div id="im-view-source" class="view-source-bar">Petri net &middot; computed locally</div>
     <div class="canvas-area" id="im-petri-area">
@@ -284,6 +285,7 @@ let _imEpoch      = -1;   // _logEpoch value of the last IM run
 let _imTokens     = null; // Map<placeId, number> initial token snapshot
 let _imBpmnEpoch      = -1;   // _logEpoch value of the last BPMN fetch
 let _imBpmnSimplicity = null; // {nodes, constructs} from last BPMN fetch, or null
+let _imBpmnXml        = null; // raw BPMN XML string from last fetch, for export
 let _imView           = 'petri'; // 'petri' | 'bpmn'
 let _imBpmnViewer     = null; // bpmn-js NavigatedViewer instance
 
@@ -346,6 +348,8 @@ function onLogLoaded(log, name) {
     `${name}  ·  ${sum.traces} traces  ·  ${sum.activities} acts  ·  ${sum.variants} variants`;
 
   _imBpmnSimplicity = null;
+  _imBpmnXml = null;
+  document.getElementById('btn-im-export-bpmn').disabled = true;
   setConfContent('<div class="conf-message">Load a log and discover a model to check conformance.</div>');
   updateConformanceReady();
 
@@ -676,6 +680,15 @@ document.getElementById('btn-im-reset').addEventListener('click', () => {
   imViewer.render();
 });
 
+document.getElementById('btn-im-export-bpmn').addEventListener('click', () => {
+  if (!_imBpmnXml) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([_imBpmnXml], { type: 'application/xml' }));
+  a.download = (_logName ?? 'model').replace(/\.xes$/i, '') + '.bpmn';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Inductive Miner — BPMN view
 // ═══════════════════════════════════════════════════════════════════════════
@@ -719,7 +732,9 @@ async function runImBpmn() {
     const resp = await fetch('/api/mine/inductive/bpmn', { method: 'POST', body: fd });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const { bpmn, simplicity } = await resp.json();
+    _imBpmnXml        = bpmn;
     _imBpmnSimplicity = simplicity ?? null;
+    document.getElementById('btn-im-export-bpmn').disabled = false;
 
     area.textContent = '';
     if (!_imBpmnViewer) {
