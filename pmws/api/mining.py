@@ -74,9 +74,17 @@ def inductive_bpmn():
         return jsonify({"error": "xes_file required"}), 400
 
     from pm4py.objects.bpmn.exporter.variants.etree import get_xml_string
+    from pmws.bpmn_layout import apply as layout_bpmn
     log = load_xes(request.files["xes_file"])
     bpmn = pm4py.discover_bpmn_inductive(log, noise_threshold=_noise_threshold())
-    return jsonify({"bpmn": get_xml_string(bpmn)})
+    layout_bpmn(bpmn)
+    xml = get_xml_string(bpmn).decode("utf-8")
+    # bpmn-js shows an empty diamond unless isMarkerVisible is set on the element
+    xml = xml.replace(
+        "<bpmn:exclusiveGateway ",
+        '<bpmn:exclusiveGateway isMarkerVisible="true" ',
+    )
+    return jsonify({"bpmn": xml})
 
 
 @mining_bp.post("/api/mine/inductive/tree")

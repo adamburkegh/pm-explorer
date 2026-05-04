@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <title>PM Explorer</title>
+  <link rel="stylesheet" href="js/lib/bpmn-js/assets/diagram-js.css">
+  <link rel="stylesheet" href="js/lib/bpmn-js/assets/bpmn-js.css">
+  <link rel="stylesheet" href="js/lib/bpmn-js/assets/bpmn-font/css/bpmn-embedded.css">
   <style>
     /* ── Reset ─────────────────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; }
@@ -199,15 +202,20 @@
   <div id="panel-im" class="panel hidden">
     <div class="panel-toolbar">
       <span id="im-status" class="info">Load a log and switch to this tab to discover a model.</span>
+      <div class="ex-tabs" id="im-view-tabs">
+        <button data-view="petri" class="active">Petri net</button>
+        <button data-view="bpmn">BPMN</button>
+      </div>
       <span class="spacer"></span>
       <span id="im-stats" class="info"></span>
       <button id="btn-im-fit">Fit view</button>
       <button id="btn-im-reset">Reset marking</button>
       <button id="btn-im-tokens">Tokens: off</button>
     </div>
-    <div class="canvas-area">
+    <div class="canvas-area" id="im-petri-area">
       <canvas id="im-canvas"></canvas>
     </div>
+    <div class="canvas-area hidden" id="im-bpmn-area"></div>
   </div>
 
   <!-- Conformance panel -->
@@ -239,6 +247,7 @@
 <script src="js/pnv/viewer.js"></script>
 <script src="js/discovery/alpha-miner.js"></script>
 <script src="js/discovery/inductive-miner.js"></script>
+<script src="js/lib/bpmn-js/bpmn-navigated-viewer.production.min.js"></script>
 <!-- Bundled example log (avoids fetch dependency under file://) -->
 <script src="test/fixtures/running-example-xes.js"></script>
 
@@ -257,6 +266,9 @@ let _alphaTokens  = null; // Map<placeId, number> initial token snapshot
 
 let _imEpoch      = -1;   // _logEpoch value of the last IM run
 let _imTokens     = null; // Map<placeId, number> initial token snapshot
+let _imBpmnEpoch  = -1;   // _logEpoch value of the last BPMN fetch
+let _imView       = 'petri'; // 'petri' | 'bpmn'
+let _imBpmnViewer = null; // bpmn-js NavigatedViewer instance
 
 let _backendConnected = false;
 let _confSource       = 'im';  // 'alpha' | 'im'
@@ -625,8 +637,10 @@ function runInductive() {
     `${result.net.arcs.size} arcs`;
 }
 
-document.getElementById('btn-im-fit').addEventListener('click',
-  () => imViewer.fitView());
+document.getElementById('btn-im-fit').addEventListener('click', () => {
+  if (_imView === 'bpmn') _imBpmnViewer?.get('canvas').zoom('fit-viewport');
+  else imViewer.fitView();
+});
 
 document.getElementById('btn-im-tokens').addEventListener('click', function() {
   const show = !imViewer.renderer.showTokens;
@@ -643,6 +657,61 @@ document.getElementById('btn-im-reset').addEventListener('click', () => {
   imViewer.net.updateEnabledTransitions();
   imViewer.render();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Inductive Miner — BPMN view
+// ═══════════════════════════════════════════════════════════════════════════
+
+function switchImView(view) {
+  _imView = view;
+  document.querySelectorAll('#im-view-tabs button').forEach(b =>
+    b.classList.toggle('active', b.dataset.view === view)
+  );
+  document.getElementById('im-petri-area').classList.toggle('hidden', view !== 'petri');
+  document.getElementById('im-bpmn-area').classList.toggle('hidden', view !== 'bpmn');
+
+  if (view === 'bpmn') {
+    if (_imBpmnEpoch !== _imEpoch) runImBpmn();
+    else _imBpmnViewer?.get('canvas').zoom('fit-viewport');
+  }
+}
+
+async function runImBpmn() {
+  if (!_backendConnected) {
+    document.getElementById('im-bpmn-area').textContent = 'Backend not connected.';
+    return;
+  }
+  if (!_logFile) return;
+
+  const area = document.getElementById('im-bpmn-area');
+  area.textContent = 'Running…';
+
+  const fd = new FormData();
+  fd.append('xes_file', _logFile, 'log.xes');
+
+  try {
+    const resp = await fetch('/api/mine/inductive/bpmn', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const { bpmn } = await resp.json();
+
+    area.textContent = '';
+    if (!_imBpmnViewer) {
+      _imBpmnViewer = new BpmnJS({ container: area });
+    } else {
+      _imBpmnViewer.attachTo(area);
+    }
+
+    await _imBpmnViewer.importXML(bpmn);
+    _imBpmnViewer.get('canvas').zoom('fit-viewport');
+    _imBpmnEpoch = _imEpoch;
+  } catch (e) {
+    area.textContent = `Error: ${e.message}`;
+  }
+}
+
+document.querySelectorAll('#im-view-tabs button').forEach(btn =>
+  btn.addEventListener('click', () => switchImView(btn.dataset.view))
+);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Conformance panel
