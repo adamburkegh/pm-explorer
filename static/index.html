@@ -82,6 +82,7 @@
       position: absolute; inset: 0;
       display: flex; flex-direction: column;
     }
+    .hidden { display: none; }
     .panel.hidden { display: none !important; }
 
     /* ── Log panel ─────────────────────────────────────────────────────────── */
@@ -125,9 +126,15 @@
     .ex-tabs button {
       padding: 3px 10px; border-radius: 0; border: 1px solid #555; font-size: 12px;
     }
-    .ex-tabs button:first-child { border-radius: 3px 0 0 3px; }
-    .ex-tabs button:last-child  { border-radius: 0 3px 3px 0; border-left: none; }
+    .ex-tabs button:first-child  { border-radius: 3px 0 0 3px; }
+    .ex-tabs button:last-child   { border-radius: 0 3px 3px 0; }
+    .ex-tabs button + button     { border-left: none; }
     .ex-tabs button.active { background: #4682b4; color: #fff; border-color: #4682b4; }
+
+    .view-source-bar {
+      padding: 2px 10px; font-size: 10px; color: #888;
+      background: #f0f0f0; border-bottom: 1px solid #ddd; flex-shrink: 0;
+    }
 
     /* Canvas host */
     .canvas-area {
@@ -205,6 +212,7 @@
       <div class="ex-tabs" id="im-view-tabs">
         <button data-view="petri" class="active">Petri net</button>
         <button data-view="bpmn">BPMN</button>
+        <button data-view="tree" disabled>Process tree</button>
       </div>
       <span class="spacer"></span>
       <span id="im-stats" class="info"></span>
@@ -212,10 +220,12 @@
       <button id="btn-im-reset">Reset marking</button>
       <button id="btn-im-tokens">Tokens: off</button>
     </div>
+    <div id="im-view-source" class="view-source-bar">Petri net &middot; computed locally</div>
     <div class="canvas-area" id="im-petri-area">
       <canvas id="im-canvas"></canvas>
     </div>
     <div class="canvas-area hidden" id="im-bpmn-area"></div>
+    <div class="canvas-area hidden" id="im-tree-area"></div>
   </div>
 
   <!-- Conformance panel -->
@@ -662,6 +672,12 @@ document.getElementById('btn-im-reset').addEventListener('click', () => {
 // Inductive Miner — BPMN view
 // ═══════════════════════════════════════════════════════════════════════════
 
+const _imViewSource = {
+  petri: 'Petri net · computed locally',
+  bpmn:  'BPMN · requires server',
+  tree:  'Process tree · coming soon',
+};
+
 function switchImView(view) {
   _imView = view;
   document.querySelectorAll('#im-view-tabs button').forEach(b =>
@@ -669,6 +685,8 @@ function switchImView(view) {
   );
   document.getElementById('im-petri-area').classList.toggle('hidden', view !== 'petri');
   document.getElementById('im-bpmn-area').classList.toggle('hidden', view !== 'bpmn');
+  document.getElementById('im-tree-area').classList.toggle('hidden', view !== 'tree');
+  document.getElementById('im-view-source').textContent = _imViewSource[view] ?? '';
 
   if (view === 'bpmn') {
     if (_imBpmnEpoch !== _imEpoch) runImBpmn();
