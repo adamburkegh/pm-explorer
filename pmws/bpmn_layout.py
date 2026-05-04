@@ -5,6 +5,7 @@ Assigns node bounds and flow waypoints using a longest-path rank
 assignment from start events.  Forward edges connect right-to-left;
 backward edges (loops) route below all ranks.
 """
+import re
 from collections import defaultdict, deque
 
 from pm4py.objects.bpmn.obj import BPMN
@@ -117,3 +118,19 @@ def apply(bpmn_graph):
             flow.add_waypoint((tcx, tcy + th // 2))
 
     return bpmn_graph
+
+
+def mark_xor_gateways(xml: str) -> str:
+    """Add isMarkerVisible="true" to exclusive gateway BPMNShape DI elements.
+
+    The BPMN 2.0 DI spec places isMarkerVisible on BPMNShape, not on the
+    semantic ExclusiveGateway element.  bpmn-js reads it from the DI shape,
+    so without this attribute the gateway renders as an empty diamond.
+    """
+    gw_ids = set(re.findall(r'<bpmn:exclusiveGateway[^>]+\bid="([^"]+)"', xml))
+    for gw_id in gw_ids:
+        xml = xml.replace(
+            f'bpmnElement="{gw_id}"',
+            f'bpmnElement="{gw_id}" isMarkerVisible="true"',
+        )
+    return xml
