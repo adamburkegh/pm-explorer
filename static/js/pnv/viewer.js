@@ -23,10 +23,11 @@ class PetriNetViewer {
    */
   constructor(canvas, options = {}) {
     this.canvas = canvas;
-    this.options = { interactive: false, ...options };
+    this.options = { interactive: false, showTokens: false, ...options };
 
     this.net = new PetriNet(PetriNet.generateId());
     this.renderer = new PetriNetRenderer(canvas, this.net);
+    this.renderer.showTokens = this.options.showTokens;
 
     this._isPanning = false;
     this._lastPan = null;
@@ -68,6 +69,12 @@ class PetriNetViewer {
   /** Apply a partial theme object. */
   setTheme(theme) {
     this.renderer.setTheme(theme);
+    this.render();
+  }
+
+  /** Show or hide token counts on places. */
+  setShowTokens(show) {
+    this.renderer.showTokens = show;
     this.render();
   }
 

@@ -236,14 +236,14 @@ function applyAlphaMinerDfg(dfgGraph, startActivities, endActivities) {
     transitionMap.set(label, t);
   }
 
-  const source = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'start', 0);
+  const source = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'start', 1);
   net.addPlace(source);
   for (const actName of startActivities.keys()) {
     const t = transitionMap.get(actName);
     if (t) net.addArc(new Arc(PetriNet.generateId(), source.id, t.id));
   }
 
-  const sink = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'end', 0, null, null);
+  const sink = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'end', 0, null, 1);
   net.addPlace(sink);
   for (const actName of endActivities.keys()) {
     const t = transitionMap.get(actName);
