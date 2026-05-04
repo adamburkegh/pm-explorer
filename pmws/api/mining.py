@@ -48,21 +48,35 @@ def inductive():
 
 @mining_bp.post("/api/mine/inductive/bpmn")
 def inductive_bpmn():
+    """Return an inductive-miner BPMN model as BPMN 2.0 XML wrapped in a JSON envelope.
+
+    The response is { "bpmn": "<xml string>" } rather than a native JSON model.
+    This is a deliberate design choice:
+
+    BPMN 2.0 XML is the OMG-standardised interchange format for BPMN, and it is
+    what bpmn-js (the rendering library used in the frontend) consumes directly.
+    Neither Camunda nor bpmn-js defines or supports a JSON equivalent for BPMN
+    process models — bpmn-js's internal object model (bpmn-moddle) only
+    round-trips to/from XML, not JSON.
+
+    A custom JSON-to-BPMN mapping would require non-trivial translation work
+    (split/join gateway pairs, loop structures, BPMN DI layout) and produce a
+    non-standard format that bpmn-js still could not consume. The XML is therefore
+    treated as an opaque payload: pm4py produces it, the JSON envelope carries it
+    over HTTP, and bpmn-js consumes it — no translation layer needed.
+
+    The JS inductive miner in the frontend could in principle produce BPMN from
+    its process tree output, but the process-tree → BPMN conversion (particularly
+    loop and gateway handling) is non-trivial and pm4py's implementation is
+    well-tested against edge cases, so server-side generation is preferred.
+    """
     if "xes_file" not in request.files:
         return jsonify({"error": "xes_file required"}), 400
 
+    from pm4py.objects.bpmn.exporter.variants.etree import get_xml_string
     log = load_xes(request.files["xes_file"])
     bpmn = pm4py.discover_bpmn_inductive(log, noise_threshold=_noise_threshold())
-
-    nodes = [
-        {"id": n.get_id(), "type": type(n).__name__, "label": n.get_name() or ""}
-        for n in bpmn.get_nodes()
-    ]
-    flows = [
-        {"id": f.get_id(), "source": f.get_source().get_id(), "target": f.get_target().get_id()}
-        for f in bpmn.get_flows()
-    ]
-    return jsonify({"nodes": nodes, "flows": flows})
+    return jsonify({"bpmn": get_xml_string(bpmn)})
 
 
 @mining_bp.post("/api/mine/inductive/tree")
