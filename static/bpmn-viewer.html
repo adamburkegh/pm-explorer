@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BPMN Viewer</title>
+  <link rel="stylesheet" href="js/lib/bpmn-js/assets/diagram-js.css">
+  <link rel="stylesheet" href="js/lib/bpmn-js/assets/bpmn-js.css">
+  <link rel="stylesheet" href="js/lib/bpmn-js/assets/bpmn-font/css/bpmn-embedded.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; font-family: sans-serif; font-size: 13px; }
+    body { display: flex; flex-direction: column; background: #1e1e1e; color: #d4d4d4; }
+
+    #toolbar {
+      padding: 6px 12px;
+      background: #2d2d2d; border-bottom: 1px solid #444;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #toolbar span { color: #9cdcfe; font-weight: bold; padding-right: 12px; border-right: 1px solid #444; }
+    button {
+      padding: 4px 10px; cursor: pointer;
+      background: #3a3a3a; color: #d4d4d4;
+      border: 1px solid #555; border-radius: 3px;
+    }
+    button:hover { background: #4a4a4a; }
+    #status { font-size: 11px; color: #777; margin-left: auto; }
+
+    #canvas { flex: 1; background: #fff; }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span>BPMN Viewer</span>
+  <button id="btn-sample">Load sample</button>
+  <button id="btn-browse">Browse…</button>
+  <input id="file-input" type="file" accept=".bpmn,.xml" style="display:none">
+  <button id="btn-fit">Fit view</button>
+  <span id="status"></span>
+</div>
+
+<div id="canvas"></div>
+
+<script src="js/lib/bpmn-js/bpmn-navigated-viewer.production.min.js"></script>
+<script src="test/fixtures/simple-bpmn.js"></script>
+<script>
+const viewer = new BpmnJS({ container: '#canvas' });
+const status = document.getElementById('status');
+
+async function loadXml(xml, name) {
+  status.textContent = 'Loading…';
+  try {
+    const { warnings } = await viewer.importXML(xml);
+    viewer.get('canvas').zoom('fit-viewport');
+    status.textContent = name + (warnings.length ? ` (${warnings.length} warnings)` : '');
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+  }
+}
+
+document.getElementById('btn-sample').addEventListener('click', () => {
+  loadXml(SIMPLE_BPMN, 'simple.bpmn');
+});
+
+document.getElementById('btn-browse').addEventListener('click',
+  () => document.getElementById('file-input').click());
+
+document.getElementById('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => loadXml(ev.target.result, file.name);
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+document.getElementById('btn-fit').addEventListener('click',
+  () => viewer.get('canvas').zoom('fit-viewport'));
+</script>
+</body>
+</html>

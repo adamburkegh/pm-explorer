@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <title>PM Explorer</title>
+  <link rel="stylesheet" href="js/lib/bpmn-js/assets/diagram-js.css">
+  <link rel="stylesheet" href="js/lib/bpmn-js/assets/bpmn-js.css">
+  <link rel="stylesheet" href="js/lib/bpmn-js/assets/bpmn-font/css/bpmn-embedded.css">
   <style>
     /* ── Reset ─────────────────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; }
@@ -47,6 +50,8 @@
       border: 1px solid #555; border-radius: 3px;
     }
     button:hover { background: #4a4a4a; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button:disabled:hover { background: #3a3a3a; }
 
     #drop-zone {
       border: 1px dashed #555; border-radius: 3px;
@@ -61,6 +66,15 @@
       max-width: 280px; overflow: hidden; text-overflow: ellipsis;
     }
 
+    #backend-status {
+      font-size: 11px; white-space: nowrap;
+      padding-left: 10px; border-left: 1px solid #444;
+      display: flex; align-items: center; gap: 4px;
+    }
+    #backend-status::before { content: '●'; font-size: 8px; }
+    #backend-status.connected    { color: #4ec94e; }
+    #backend-status.disconnected { color: #555; }
+
     /* ── Content + panels ──────────────────────────────────────────────────── */
     #content { flex: 1; position: relative; overflow: hidden; }
 
@@ -68,6 +82,7 @@
       position: absolute; inset: 0;
       display: flex; flex-direction: column;
     }
+    .hidden { display: none; }
     .panel.hidden { display: none !important; }
 
     /* ── Log panel ─────────────────────────────────────────────────────────── */
@@ -111,9 +126,15 @@
     .ex-tabs button {
       padding: 3px 10px; border-radius: 0; border: 1px solid #555; font-size: 12px;
     }
-    .ex-tabs button:first-child { border-radius: 3px 0 0 3px; }
-    .ex-tabs button:last-child  { border-radius: 0 3px 3px 0; border-left: none; }
+    .ex-tabs button:first-child  { border-radius: 3px 0 0 3px; }
+    .ex-tabs button:last-child   { border-radius: 0 3px 3px 0; }
+    .ex-tabs button + button     { border-left: none; }
     .ex-tabs button.active { background: #4682b4; color: #fff; border-color: #4682b4; }
+
+    .view-source-bar {
+      padding: 2px 10px; font-size: 10px; color: #888;
+      background: #f0f0f0; border-bottom: 1px solid #ddd; flex-shrink: 0;
+    }
 
     /* Canvas host */
     .canvas-area {
@@ -123,6 +144,25 @@
       display: block; width: 100%; height: 100%; cursor: grab;
     }
     .canvas-area canvas:active { cursor: grabbing; }
+
+    /* ── Conformance panel ─────────────────────────────────────────────────── */
+    #conf-content {
+      flex: 1; overflow-y: auto; padding: 20px;
+    }
+    .conf-message { color: #777; }
+    #conf-content table { border-collapse: collapse; }
+    #conf-content th, #conf-content td {
+      border: 1px solid #3a3a3a; padding: 4px 12px; text-align: left;
+    }
+    #conf-content th { background: #2d2d2d; color: #9cdcfe; }
+    #conf-content tr:nth-child(even) { background: #252525; }
+    #conf-content td:last-child { font-family: monospace; color: #9cdcfe; }
+    #conf-content tr.conf-section td {
+      background: #2d2d2d; color: #888; font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.05em; padding: 3px 12px; border-bottom: none;
+    }
+    #conf-content tr.conf-dim td { color: #555; }
+    #conf-content tr.conf-dim td:last-child { color: #555; }
   </style>
 </head>
 <body>
@@ -135,6 +175,7 @@
     <button data-tab="log"   class="active">Log</button>
     <button data-tab="alpha">Alpha Miner</button>
     <button data-tab="im">Inductive Miner</button>
+    <button data-tab="conformance">Conformance</button>
   </nav>
 
   <div id="file-controls">
@@ -144,6 +185,7 @@
     <div id="drop-zone">or drop XES here</div>
   </div>
   <span id="log-badge"></span>
+  <span id="backend-status" class="disconnected" title="Backend not reachable">backend</span>
 </div>
 
 <!-- ── Content ─────────────────────────────────────────────────────────────── -->
@@ -162,6 +204,8 @@
       <span id="alpha-stats" class="info"></span>
       <button id="btn-alpha-fit">Fit view</button>
       <button id="btn-alpha-reset">Reset marking</button>
+      <button id="btn-alpha-tokens">Tokens: off</button>
+      <button id="btn-alpha-export-pnml" disabled>Export PNML</button>
     </div>
     <div class="canvas-area">
       <canvas id="alpha-canvas"></canvas>
@@ -172,13 +216,41 @@
   <div id="panel-im" class="panel hidden">
     <div class="panel-toolbar">
       <span id="im-status" class="info">Load a log and switch to this tab to discover a model.</span>
+      <div class="ex-tabs" id="im-view-tabs">
+        <button data-view="petri" class="active">Petri net</button>
+        <button data-view="bpmn">BPMN</button>
+        <button data-view="tree" disabled>Process tree</button>
+      </div>
       <span class="spacer"></span>
       <span id="im-stats" class="info"></span>
       <button id="btn-im-fit">Fit view</button>
       <button id="btn-im-reset">Reset marking</button>
+      <button id="btn-im-tokens">Tokens: off</button>
+      <button id="btn-im-export-pnml" disabled>Export PNML</button>
+      <button id="btn-im-export-bpmn" disabled>Export BPMN</button>
     </div>
-    <div class="canvas-area">
+    <div id="im-view-source" class="view-source-bar">Petri net &middot; computed locally</div>
+    <div class="canvas-area" id="im-petri-area">
       <canvas id="im-canvas"></canvas>
+    </div>
+    <div class="canvas-area hidden" id="im-bpmn-area"></div>
+    <div class="canvas-area hidden" id="im-tree-area"></div>
+  </div>
+
+  <!-- Conformance panel -->
+  <div id="panel-conformance" class="panel hidden">
+    <div class="panel-toolbar">
+      <span class="info">Source:</span>
+      <div class="ex-tabs" id="conf-source-tabs">
+        <button data-src="alpha">Alpha Miner</button>
+        <button data-src="im" class="active">Inductive Miner</button>
+      </div>
+      <button id="btn-run-conformance">Run</button>
+      <span class="spacer"></span>
+      <span id="conf-toolbar-status" class="info"></span>
+    </div>
+    <div id="conf-content">
+      <div class="conf-message">Load a log and discover a model to check conformance.</div>
     </div>
   </div>
 
@@ -192,8 +264,10 @@
 <script src="js/pnv/model.js"></script>
 <script src="js/pnv/renderer.js"></script>
 <script src="js/pnv/viewer.js"></script>
+<script src="js/pnv/pnml-export.js"></script>
 <script src="js/discovery/alpha-miner.js"></script>
 <script src="js/discovery/inductive-miner.js"></script>
+<script src="js/lib/bpmn-js/bpmn-navigated-viewer.production.min.js"></script>
 <!-- Bundled example log (avoids fetch dependency under file://) -->
 <script src="test/fixtures/running-example-xes.js"></script>
 
@@ -204,6 +278,7 @@
 
 let _log      = null;   // EventLog | null
 let _logName  = null;   // string   | null
+let _logFile  = null;   // File | Blob | null  — kept for backend POSTs
 let _logEpoch = 0;      // incremented each time a new log is loaded
 
 let _alphaEpoch   = -1;   // _logEpoch value of the last alpha run
@@ -211,6 +286,14 @@ let _alphaTokens  = null; // Map<placeId, number> initial token snapshot
 
 let _imEpoch      = -1;   // _logEpoch value of the last IM run
 let _imTokens     = null; // Map<placeId, number> initial token snapshot
+let _imBpmnEpoch      = -1;   // _logEpoch value of the last BPMN fetch
+let _imBpmnSimplicity = null; // {nodes, constructs} from last BPMN fetch, or null
+let _imBpmnXml        = null; // raw BPMN XML string from last fetch, for export
+let _imView           = 'petri'; // 'petri' | 'bpmn'
+let _imBpmnViewer     = null; // bpmn-js NavigatedViewer instance
+
+let _backendConnected = false;
+let _confSource       = 'im';  // 'alpha' | 'im'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Tab system
@@ -244,6 +327,9 @@ function switchTab(tab) {
   if (tab === 'log' && _log) {
     renderLog(_log);
   }
+  if (tab === 'conformance') {
+    updateConformanceReady();
+  }
 }
 
 document.querySelectorAll('#tabs button').forEach(btn =>
@@ -264,6 +350,12 @@ function onLogLoaded(log, name) {
   document.getElementById('log-badge').textContent =
     `${name}  ·  ${sum.traces} traces  ·  ${sum.activities} acts  ·  ${sum.variants} variants`;
 
+  _imBpmnSimplicity = null;
+  _imBpmnXml = null;
+  document.getElementById('btn-im-export-bpmn').disabled = true;
+  setConfContent('<div class="conf-message">Load a log and discover a model to check conformance.</div>');
+  updateConformanceReady();
+
   // Refresh whichever panel is currently visible
   const active = document.querySelector('#tabs button.active')?.dataset.tab;
   if (active === 'log')   renderLog(log);
@@ -279,11 +371,16 @@ async function loadXes(source) {
     if (source === 'example') {
       log  = xesParser.parse(RUNNING_EXAMPLE_XES);
       name = 'running_example.xes';
+      _logFile = new Blob([RUNNING_EXAMPLE_XES], { type: 'application/xml' });
     } else if (typeof source === 'string') {
-      log  = await xesParser.parseUrl(source);
+      const resp = await fetch(source);
+      const text = await resp.text();
+      _logFile = new Blob([text], { type: 'application/xml' });
+      log  = xesParser.parse(text);
       name = source.split('/').pop();
     } else {
       log  = await xesParser.parseFile(source);
+      _logFile = source;
       name = source.name;
     }
     onLogLoaded(log, name);
@@ -591,6 +688,8 @@ function runAlpha() {
   );
 
   alphaViewer.load(result.net);
+  document.getElementById('btn-alpha-export-pnml').disabled = false;
+  updateConformanceReady();
 
   document.getElementById('alpha-status').textContent = _logName ?? '';
   document.getElementById('alpha-stats').textContent =
@@ -602,6 +701,12 @@ function runAlpha() {
 document.getElementById('btn-alpha-fit').addEventListener('click',
   () => alphaViewer.fitView());
 
+document.getElementById('btn-alpha-tokens').addEventListener('click', function() {
+  const show = !alphaViewer.renderer.showTokens;
+  alphaViewer.setShowTokens(show);
+  this.textContent = `Tokens: ${show ? 'on' : 'off'}`;
+});
+
 document.getElementById('btn-alpha-reset').addEventListener('click', () => {
   if (!_alphaTokens) return;
   for (const [id, tokens] of _alphaTokens) {
@@ -610,6 +715,17 @@ document.getElementById('btn-alpha-reset').addEventListener('click', () => {
   }
   alphaViewer.net.updateEnabledTransitions();
   alphaViewer.render();
+});
+
+document.getElementById('btn-alpha-export-pnml').addEventListener('click', () => {
+  if (!alphaViewer.net) return;
+  const stem = (_logName ?? 'model').replace(/\.xes$/i, '');
+  const xml = toPNML(alphaViewer.net, _alphaTokens, stem);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }));
+  a.download = stem + '.pnml';
+  a.click();
+  URL.revokeObjectURL(a.href);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -635,6 +751,8 @@ function runInductive() {
   );
 
   imViewer.load(result.net);
+  document.getElementById('btn-im-export-pnml').disabled = false;
+  updateConformanceReady();
 
   document.getElementById('im-status').textContent = _logName ?? '';
   document.getElementById('im-stats').textContent =
@@ -643,8 +761,16 @@ function runInductive() {
     `${result.net.arcs.size} arcs`;
 }
 
-document.getElementById('btn-im-fit').addEventListener('click',
-  () => imViewer.fitView());
+document.getElementById('btn-im-fit').addEventListener('click', () => {
+  if (_imView === 'bpmn') _imBpmnViewer?.get('canvas').zoom('fit-viewport');
+  else imViewer.fitView();
+});
+
+document.getElementById('btn-im-tokens').addEventListener('click', function() {
+  const show = !imViewer.renderer.showTokens;
+  imViewer.setShowTokens(show);
+  this.textContent = `Tokens: ${show ? 'on' : 'off'}`;
+});
 
 document.getElementById('btn-im-reset').addEventListener('click', () => {
   if (!_imTokens) return;
@@ -656,10 +782,222 @@ document.getElementById('btn-im-reset').addEventListener('click', () => {
   imViewer.render();
 });
 
+document.getElementById('btn-im-export-pnml').addEventListener('click', () => {
+  if (!imViewer.net) return;
+  const stem = (_logName ?? 'model').replace(/\.xes$/i, '');
+  const xml = toPNML(imViewer.net, _imTokens, stem);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }));
+  a.download = stem + '.pnml';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById('btn-im-export-bpmn').addEventListener('click', () => {
+  if (!_imBpmnXml) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([_imBpmnXml], { type: 'application/xml' }));
+  a.download = (_logName ?? 'model').replace(/\.xes$/i, '') + '.bpmn';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Inductive Miner — BPMN view
+// ═══════════════════════════════════════════════════════════════════════════
+
+const _imViewSource = {
+  petri: 'Petri net · computed locally',
+  bpmn:  'BPMN · requires server',
+  tree:  'Process tree · coming soon',
+};
+
+function switchImView(view) {
+  _imView = view;
+  document.querySelectorAll('#im-view-tabs button').forEach(b =>
+    b.classList.toggle('active', b.dataset.view === view)
+  );
+  document.getElementById('im-petri-area').classList.toggle('hidden', view !== 'petri');
+  document.getElementById('im-bpmn-area').classList.toggle('hidden', view !== 'bpmn');
+  document.getElementById('im-tree-area').classList.toggle('hidden', view !== 'tree');
+  document.getElementById('im-view-source').textContent = _imViewSource[view] ?? '';
+
+  if (view === 'bpmn') {
+    if (_imBpmnEpoch !== _imEpoch) runImBpmn();
+    else _imBpmnViewer?.get('canvas').zoom('fit-viewport');
+  }
+}
+
+async function runImBpmn() {
+  if (!_backendConnected) {
+    document.getElementById('im-bpmn-area').textContent = 'Backend not connected.';
+    return;
+  }
+  if (!_logFile) return;
+
+  const area = document.getElementById('im-bpmn-area');
+  area.textContent = 'Running…';
+
+  const fd = new FormData();
+  fd.append('xes_file', _logFile, 'log.xes');
+
+  try {
+    const resp = await fetch('/api/mine/inductive/bpmn', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const { bpmn, simplicity } = await resp.json();
+    _imBpmnXml        = bpmn;
+    _imBpmnSimplicity = simplicity ?? null;
+    document.getElementById('btn-im-export-bpmn').disabled = false;
+
+    area.textContent = '';
+    if (!_imBpmnViewer) {
+      _imBpmnViewer = new BpmnJS({ container: area });
+    } else {
+      _imBpmnViewer.attachTo(area);
+    }
+
+    await _imBpmnViewer.importXML(bpmn);
+    _imBpmnViewer.get('canvas').zoom('fit-viewport');
+    _imBpmnEpoch = _imEpoch;
+  } catch (e) {
+    area.textContent = `Error: ${e.message}`;
+  }
+}
+
+document.querySelectorAll('#im-view-tabs button').forEach(btn =>
+  btn.addEventListener('click', () => switchImView(btn.dataset.view))
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Conformance panel
+// ═══════════════════════════════════════════════════════════════════════════
+
+document.querySelectorAll('#conf-source-tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    _confSource = btn.dataset.src;
+    document.querySelectorAll('#conf-source-tabs button').forEach(b =>
+      b.classList.toggle('active', b.dataset.src === _confSource)
+    );
+  });
+});
+
+function updateConformanceReady() {
+  const status = document.getElementById('conf-toolbar-status');
+  const btn    = document.getElementById('btn-run-conformance');
+  let reason = '';
+  if (!_backendConnected)                                               reason = 'Backend not connected';
+  else if (!_logFile)                                                   reason = 'Load a log first';
+  else if (_confSource === 'alpha' ? _alphaEpoch === -1 : _imEpoch === -1) reason = 'Run the selected miner first';
+  status.textContent = reason;
+  btn.disabled = !!reason;
+}
+
+function setConfContent(html) {
+  document.getElementById('conf-content').innerHTML = html;
+}
+
+async function runConformance() {
+  updateConformanceReady();
+  if (!_backendConnected) return;
+  if (!_logFile)          return;
+  const netReady = _confSource === 'alpha' ? _alphaEpoch !== -1 : _imEpoch !== -1;
+  if (!netReady)          return;
+
+  const viewer = _confSource === 'alpha' ? alphaViewer : imViewer;
+  setConfContent('<div class="conf-message">Running…</div>');
+
+  const makeFormData = () => {
+    const fd = new FormData();
+    fd.append('xes_file', _logFile, 'log.xes');
+    fd.append('net', viewer.net.toJSON());
+    return fd;
+  };
+
+  try {
+    const [fitnessResp, precisionResp] = await Promise.all([
+      fetch('/api/conformance/fitness',   { method: 'POST', body: makeFormData() }),
+      fetch('/api/conformance/precision', { method: 'POST', body: makeFormData() }),
+    ]);
+    if (!fitnessResp.ok)   throw new Error(`Fitness: HTTP ${fitnessResp.status}`);
+    if (!precisionResp.ok) throw new Error(`Precision: HTTP ${precisionResp.status}`);
+    const [fitness, precision] = await Promise.all([fitnessResp.json(), precisionResp.json()]);
+    const net = viewer.net;
+    const pnSimplicity = {
+      nodes:      net.places.size + net.transitions.size,
+      constructs: net.places.size + net.transitions.size + net.arcs.size,
+    };
+    const bpmnSimplicity = _confSource === 'im' ? _imBpmnSimplicity : undefined;
+    renderConfResults({ ...fitness, ...precision }, pnSimplicity, bpmnSimplicity);
+  } catch (e) {
+    setConfContent(`<div class="conf-message">Error: ${e.message}</div>`);
+  }
+}
+
+function renderConfResults(data, pnSimplicity, bpmnSimplicity) {
+  const pct = v => `${Math.round(v * 100)}%`;
+  const section = label =>
+    `<tr class="conf-section"><td colspan="3">${label}</td></tr>`;
+  const row = (label, desc, value, dim) =>
+    `<tr${dim ? ' class="conf-dim"' : ''}><td>${label}</td><td>${desc}</td><td>${value}</td></tr>`;
+
+  const bpmnPending = bpmnSimplicity === null;
+  const na = '—';
+
+  const rows = [
+    section('Fitness'),
+    row('Trace fitness',    'Token-based replay',                     pct(data.logFitness)),
+    row('Fitting traces',   'Traces replaying without missing tokens', pct(data.percentageFittingTraces)),
+    section('Precision'),
+    row('Precision',        'Token-based replay',                     pct(data.precision)),
+    section('Simplicity · Petri net'),
+    row('Nodes',            'Places + transitions',                   pnSimplicity.nodes),
+    row('Constructs',       'Nodes + arcs',                           pnSimplicity.constructs),
+    ...(bpmnSimplicity !== undefined ? [
+      section('Simplicity · BPMN'),
+      row('Nodes',      'Tasks + gateways + events',        bpmnPending ? na : bpmnSimplicity.nodes,      bpmnPending),
+      row('Constructs', 'Nodes + sequence flows',           bpmnPending ? na : bpmnSimplicity.constructs, bpmnPending),
+    ] : []),
+  ].join('');
+
+  setConfContent(`<table class="conf-table"><thead><tr><th>Metric</th><th>Method</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>`);
+}
+
+document.getElementById('btn-run-conformance').addEventListener('click', runConformance);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Backend status probe
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function checkBackendStatus() {
+  const el = document.getElementById('backend-status');
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const resp = await fetch('/api/status', { signal: controller.signal });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const data = await resp.json();
+      _backendConnected = true;
+      el.className = 'connected';
+      el.title = `Backend connected · pm4py ${data.pm4py}`;
+    } else {
+      _backendConnected = false;
+      el.className = 'disconnected';
+      el.title = `Backend error (HTTP ${resp.status})`;
+    }
+  } catch {
+    _backendConnected = false;
+    el.className = 'disconnected';
+    el.title = 'Backend not reachable';
+  }
+  updateConformanceReady();
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Initialise
 // ═══════════════════════════════════════════════════════════════════════════
 
+checkBackendStatus();
 loadXes('example');      // auto-load the running example so the app feels alive
 </script>
 </body>

@@ -797,8 +797,8 @@ function _imRecurse(uvcl) {
 function _processTreeToPetriNet(tree) {
   const net = new PetriNet(PetriNet.generateId(), 'inductive_miner_net');
 
-  const source = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'start', 0);
-  const sink   = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'end',   0, null, null);
+  const source = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'start', 1);
+  const sink   = new Place(PetriNet.generateId(), { x: 0, y: 0 }, 'end',   0, null, 1);
   net.addPlace(source);
   net.addPlace(sink);
 
