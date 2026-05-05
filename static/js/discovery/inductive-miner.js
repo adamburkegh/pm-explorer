@@ -897,9 +897,10 @@ function _convertNode(net, node, pInId, pOutId) {
  * @param {EventLog} log
  * @param {object}  [params]
  * @param {string}  [params.activityKey]
- * @returns {{ net: PetriNet, initialMarking: Map<string,number>,
- *             finalMarking: Map<string,number>, source: Place, sink: Place,
- *             processTree: ProcessTreeNode }}
+ * @returns {{ net: PetriNet, source: Place, sink: Place,
+ *             processTree: ProcessTreeNode,
+ *             initialMarking: Map<string,number>,
+ *             finalMarking:   Map<string,number> }}
  */
 function applyInductiveMiner(log, params = {}) {
   const activityKey = params.activityKey || log.activityKey || DEFAULT_NAME_KEY;
@@ -912,12 +913,18 @@ function applyInductiveMiner(log, params = {}) {
  *
  * @param {Map<string,number>} uvcl
  * @returns {{ net: PetriNet, source: Place, sink: Place,
- *             processTree: ProcessTreeNode }}
+ *             processTree: ProcessTreeNode,
+ *             initialMarking: Map<string,number>,
+ *             finalMarking:   Map<string,number> }}
  */
 function applyInductiveMinerUvcl(uvcl) {
   const processTree = _imRecurse(uvcl);
   const { net, source, sink } = _processTreeToPetriNet(processTree);
   net.updateEnabledTransitions();
 
-  return { net, source, sink, processTree };
+  return {
+    net, source, sink, processTree,
+    initialMarking: new Map([[source.id, 1]]),
+    finalMarking:   new Map([[sink.id,   1]]),
+  };
 }

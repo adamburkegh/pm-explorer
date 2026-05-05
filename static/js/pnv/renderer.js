@@ -14,6 +14,7 @@ class PetriNetRenderer {
     this.minZoom = 0.1;
     this.maxZoom = 3.0;
     this.showTokens = false;
+    this.showFinalMarking = false;
 
     this.theme = {
       placeColor: '#ffffff',
@@ -143,7 +144,7 @@ class PetriNetRenderer {
       this.ctx.lineWidth = 2;
       this.ctx.stroke();
 
-      if (place.hasFinalMarking()) {
+      if (this.showFinalMarking && place.hasFinalMarking()) {
         this.ctx.beginPath();
         this.ctx.arc(place.position.x, place.position.y, place.radius + 3, 0, Math.PI * 2);
         this.ctx.strokeStyle = place.hasReachedFinalMarking() ? '#A3BE8C' : '#EBCB8B';

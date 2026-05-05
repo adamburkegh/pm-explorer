@@ -23,11 +23,12 @@ class PetriNetViewer {
    */
   constructor(canvas, options = {}) {
     this.canvas = canvas;
-    this.options = { interactive: false, showTokens: false, ...options };
+    this.options = { interactive: false, showTokens: false, showFinalMarking: false, ...options };
 
     this.net = new PetriNet(PetriNet.generateId());
     this.renderer = new PetriNetRenderer(canvas, this.net);
     this.renderer.showTokens = this.options.showTokens;
+    this.renderer.showFinalMarking = this.options.showFinalMarking;
 
     this._isPanning = false;
     this._lastPan = null;

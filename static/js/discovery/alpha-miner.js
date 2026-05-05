@@ -148,7 +148,8 @@ function _isPairMaximal(allPairs, pair) {
  * @param {EventLog} log
  * @param {object}  [params]
  * @param {string}  [params.activityKey]
- * @returns {{ net: PetriNet,
+ * @returns {{ net: PetriNet, source: Place, sink: Place,
+ *             transitionMap:  Map<string,Transition>,
  *             initialMarking: Map<string,number>,
  *             finalMarking:   Map<string,number> }}
  */
@@ -166,7 +167,8 @@ function applyAlphaMiner(log, params = {}) {
  * @param {Map<string,number>} dfgGraph        Map keyed by dfgKey(a,b)
  * @param {Map<string,number>} startActivities
  * @param {Map<string,number>} endActivities
- * @returns {{ net: PetriNet,
+ * @returns {{ net: PetriNet, source: Place, sink: Place,
+ *             transitionMap:  Map<string,Transition>,
  *             initialMarking: Map<string,number>,
  *             finalMarking:   Map<string,number> }}
  */
@@ -269,5 +271,7 @@ function applyAlphaMinerDfg(dfgGraph, startActivities, endActivities) {
     /** @type {Place}           */ source,
     /** @type {Place}           */ sink,
     /** @type {Map<string,Transition>} */ transitionMap,
+    initialMarking: new Map([[source.id, 1]]),
+    finalMarking:   new Map([[sink.id,   1]]),
   };
 }

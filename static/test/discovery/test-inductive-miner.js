@@ -554,13 +554,21 @@ describe('petri net invariants — bipartite arcs and markings', () => {
           `arc ${arc.source}→${arc.target} violates bipartite property`);
       }
     });
-    it(`[${label}] source has no initial tokens`, () => {
+    it(`[${label}] source has 1 initial token`, () => {
       const { source } = applyInductiveMinerUvcl(uvcl);
-      assert.equal(source.tokens, 0);
+      assert.equal(source.tokens, 1);
     });
-    it(`[${label}] sink has no final marking`, () => {
+    it(`[${label}] sink has finalMarking=1`, () => {
       const { sink } = applyInductiveMinerUvcl(uvcl);
-      assert.equal(sink.finalMarking, null);
+      assert.equal(sink.finalMarking, 1);
+    });
+    it(`[${label}] initialMarking map seeds source with 1`, () => {
+      const { source, initialMarking } = applyInductiveMinerUvcl(uvcl);
+      assert.equal(initialMarking.get(source.id), 1);
+    });
+    it(`[${label}] finalMarking map identifies sink with 1`, () => {
+      const { sink, finalMarking } = applyInductiveMinerUvcl(uvcl);
+      assert.equal(finalMarking.get(sink.id), 1);
     });
   }
 });
@@ -569,7 +577,7 @@ describe('petri net invariants — bipartite arcs and markings', () => {
 
 describe('applyInductiveMiner — running_example.xes', () => {
   const log = xesParser.parse(RUNNING_EXAMPLE_XES);
-  const { net, source, sink, processTree: tree } = applyInductiveMiner(log);
+  const { net, source, sink, processTree: tree, initialMarking, finalMarking } = applyInductiveMiner(log);
 
   const knownActivities = [
     'register request', 'examine casually', 'check ticket',
@@ -620,12 +628,20 @@ describe('applyInductiveMiner — running_example.xes', () => {
     assert.ok(endLabels.includes('reject request'));
   });
 
-  it('source has no initial tokens', () => {
-    assert.equal(source.tokens, 0);
+  it('source has 1 initial token', () => {
+    assert.equal(source.tokens, 1);
   });
 
-  it('sink has no final marking', () => {
-    assert.equal(sink.finalMarking, null);
+  it('sink has finalMarking=1', () => {
+    assert.equal(sink.finalMarking, 1);
+  });
+
+  it('initialMarking map seeds source with 1', () => {
+    assert.equal(initialMarking.get(source.id), 1);
+  });
+
+  it('finalMarking map identifies sink with 1', () => {
+    assert.equal(finalMarking.get(sink.id), 1);
   });
 
   it('only register request is enabled initially — no silent first', () => {

@@ -109,8 +109,7 @@ describe('buildParallelRelation', () => {
 
 describe('applyAlphaMiner (fixture log)', () => {
   const log = makeAlphaFixtureLog();
-  const { net, initialMarking, finalMarking, source, sink, transitionMap } =
-    applyAlphaMiner(log);
+  const { net, source, sink, transitionMap, initialMarking, finalMarking } = applyAlphaMiner(log);
 
   describe('transitions', () => {
     it('has one transition per activity (3)', () => {
@@ -138,15 +137,15 @@ describe('applyAlphaMiner (fixture log)', () => {
       assert.equal(source.tokens, 1);
     });
 
-    it('initialMarking maps source place to 1', () => {
-      assert.equal(initialMarking.get(source.id), 1);
-    });
-
     it('sink place has finalMarking=1', () => {
       assert.equal(sink.finalMarking, 1);
     });
 
-    it('finalMarking maps sink place to 1', () => {
+    it('initialMarking map seeds source with 1', () => {
+      assert.equal(initialMarking.get(source.id), 1);
+    });
+
+    it('finalMarking map identifies sink with 1', () => {
       assert.equal(finalMarking.get(sink.id), 1);
     });
   });
@@ -264,7 +263,7 @@ describe('concurrent activities (A||B before C)', () => {
 
 describe('applyAlphaMiner (running_example.xes)', () => {
   const log = xesParser.parse(RUNNING_EXAMPLE_XES);
-  const { net, source, sink, transitionMap } = applyAlphaMiner(log);
+  const { net, source, sink, transitionMap, initialMarking, finalMarking } = applyAlphaMiner(log);
 
   it('produces one transition per activity (8 activities)', () => {
     assert.equal(net.transitions.size, 8);
@@ -311,6 +310,14 @@ describe('applyAlphaMiner (running_example.xes)', () => {
 
   it('sink place has finalMarking = 1', () => {
     assert.equal(sink.finalMarking, 1);
+  });
+
+  it('initialMarking map seeds source with 1', () => {
+    assert.equal(initialMarking.get(source.id), 1);
+  });
+
+  it('finalMarking map identifies sink with 1', () => {
+    assert.equal(finalMarking.get(sink.id), 1);
   });
 
   it('initial marking: only register request is enabled', () => {

@@ -129,6 +129,8 @@ vm.runInThisContext(fs.readFileSync('./static/js/eventlog/constants.js',    'utf
 vm.runInThisContext(fs.readFileSync('./static/js/eventlog/event-log.js',    'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/js/eventlog/xes-parser.js',   'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/js/eventlog/log-util.js',     'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/pnv/model.js',             'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/discovery/alpha-miner.js', 'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/js/discovery/inductive-miner.js', 'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/fixtures/running-example-xes.js', 'utf8'));
 
@@ -185,11 +187,10 @@ global.assert = {
   },
 };
 
-// ── Run the browser test file in this context ─────────────────────────────────
+// ── Run the browser test files in this context ───────────────────────────────
 
-vm.runInThisContext(
-  fs.readFileSync('./static/test/discovery/test-inductive-miner.js', 'utf8')
-);
+vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-alpha-miner.js',    'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-inductive-miner.js','utf8'));
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`);
