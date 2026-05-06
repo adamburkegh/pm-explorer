@@ -6,6 +6,7 @@
  *   - zoom (scroll wheel)
  *   - fit-to-view on load
  *   - canvas auto-resize via ResizeObserver
+ *   - drag-to-move nodes (places and transitions)
  *   - optional click-to-fire for interactive simulation
  *
  * Usage:
@@ -31,7 +32,11 @@ class PetriNetViewer {
     this.renderer.showFinalMarking = this.options.showFinalMarking;
 
     this._isPanning = false;
-    this._lastPan = null;
+    this._lastPan   = null;
+
+    // Drag-to-move state
+    this._dragNode   = null;  // { node, offsetX, offsetY }
+    this._dragMoved  = false;
 
     this._bindEvents();
     this._bindResize();
@@ -79,6 +84,32 @@ class PetriNetViewer {
     this.render();
   }
 
+  // ── Hit-testing ─────────────────────────────────────────────────────────────
+
+  /**
+   * Returns the first net node (place or transition) under the world-space point,
+   * or null if nothing is hit.
+   */
+  _hitNode(world) {
+    // Check transitions (rectangles)
+    for (const [, t] of this.net.transitions) {
+      if (world.x >= t.position.x - t.width  / 2 &&
+          world.x <= t.position.x + t.width  / 2 &&
+          world.y >= t.position.y - t.height / 2 &&
+          world.y <= t.position.y + t.height / 2) {
+        return t;
+      }
+    }
+    // Check places (circles — radius lives on the place object)
+    for (const [, p] of this.net.places) {
+      const r  = p.radius ?? 20;
+      const dx = world.x - p.position.x;
+      const dy = world.y - p.position.y;
+      if (dx * dx + dy * dy <= r * r) return p;
+    }
+    return null;
+  }
+
   // ── Event wiring ────────────────────────────────────────────────────────────
 
   _bindEvents() {
@@ -95,18 +126,58 @@ class PetriNetViewer {
     }, { passive: false });
 
     c.addEventListener('mousedown', e => {
-      // Pan on middle-button or left-button without interactive mode
-      if (e.button === 1 || (e.button === 0 && !this.options.interactive)) {
+      if (e.button === 1) {
+        // Middle-button: always pan
         this._isPanning = true;
-        this._lastPan = { x: e.clientX, y: e.clientY };
-        c.style.cursor = 'grabbing';
+        this._lastPan   = { x: e.clientX, y: e.clientY };
+        c.style.cursor  = 'grabbing';
         e.preventDefault();
-      } else if (e.button === 0 && this.options.interactive) {
-        this._handleClick(e);
+        return;
+      }
+
+      if (e.button === 0) {
+        const rect  = c.getBoundingClientRect();
+        const sx    = e.clientX - rect.left;
+        const sy    = e.clientY - rect.top;
+        const world = this.renderer.screenToWorld(sx, sy);
+        const node  = this._hitNode(world);
+
+        if (node) {
+          // Drag the node
+          this._dragNode  = {
+            node,
+            offsetX: world.x - node.position.x,
+            offsetY: world.y - node.position.y,
+          };
+          this._dragMoved = false;
+          c.style.cursor  = 'grab';
+          e.preventDefault();
+        } else if (this.options.interactive) {
+          // Interactive mode with no node hit — pass to click handler (may fire or pan)
+          this._handleClick(e);
+        } else {
+          // Non-interactive: pan
+          this._isPanning = true;
+          this._lastPan   = { x: e.clientX, y: e.clientY };
+          c.style.cursor  = 'grabbing';
+          e.preventDefault();
+        }
       }
     });
 
     window.addEventListener('mousemove', e => {
+      if (this._dragNode) {
+        const rect  = this.canvas.getBoundingClientRect();
+        const sx    = e.clientX - rect.left;
+        const sy    = e.clientY - rect.top;
+        const world = this.renderer.screenToWorld(sx, sy);
+        this._dragNode.node.position.x = world.x - this._dragNode.offsetX;
+        this._dragNode.node.position.y = world.y - this._dragNode.offsetY;
+        this._dragMoved = true;
+        this.render();
+        return;
+      }
+
       if (!this._isPanning) return;
       const dx = e.clientX - this._lastPan.x;
       const dy = e.clientY - this._lastPan.y;
@@ -116,6 +187,29 @@ class PetriNetViewer {
     });
 
     window.addEventListener('mouseup', e => {
+      if (this._dragNode) {
+        // Short tap with no movement in interactive mode → fire transition
+        if (!this._dragMoved && this.options.interactive) {
+          const node = this._dragNode.node;
+          // Only transitions are fireable — check by presence in net.transitions
+          for (const [id, t] of this.net.transitions) {
+            if (t === node) {
+              if (this.net.fireTransition(id)) {
+                this.net.updateEnabledTransitions();
+                this.render();
+                if (this.options.onFire) this.options.onFire(id, t, this.net);
+                if (this.options.onStep) this.options.onStep(this.net);
+              }
+              break;
+            }
+          }
+        }
+        this._dragNode  = null;
+        this._dragMoved = false;
+        this.canvas.style.cursor = this.options.interactive ? 'pointer' : '';
+        return;
+      }
+
       if (this._isPanning) {
         this._isPanning = false;
         this.canvas.style.cursor = this.options.interactive ? 'pointer' : 'grab';

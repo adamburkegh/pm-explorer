@@ -105,6 +105,14 @@ class DfgRenderer {
     this.panOffset.y = padding - minY * this.zoomFactor;
   }
 
+  /** Convert a canvas-space point to world (layout) coordinates. */
+  screenToWorld(sx, sy) {
+    return {
+      x: (sx - this.panOffset.x) / this.zoomFactor,
+      y: (sy - this.panOffset.y) / this.zoomFactor,
+    };
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
   render() {
@@ -307,7 +315,7 @@ class DfgRenderer {
 
 // ── DfgViewer ─────────────────────────────────────────────────────────────────
 //
-// Thin shell: pan/zoom event wiring + ResizeObserver, mirroring the
+// Thin shell: pan/zoom/drag event wiring + ResizeObserver, mirroring the
 // PetriNetViewer pattern so the DFG tab behaves identically to Alpha / IM tabs.
 
 class DfgViewer {
@@ -317,6 +325,10 @@ class DfgViewer {
 
     this._isPanning = false;
     this._lastPan   = null;
+
+    // Drag-to-move state
+    this._dragNode  = null;   // { node, offsetX, offsetY }
+    this._dragMoved = false;
 
     this._bindEvents();
     this._bindResize();
@@ -346,6 +358,19 @@ class DfgViewer {
     }
   }
 
+  /** AABB hit-test: returns the DFG node object under world point, or null. */
+  _hitNode(world) {
+    for (const [, node] of this.renderer.nodes) {
+      if (world.x >= node.x - node.width  / 2 &&
+          world.x <= node.x + node.width  / 2 &&
+          world.y >= node.y - node.height / 2 &&
+          world.y <= node.y + node.height / 2) {
+        return node;
+      }
+    }
+    return null;
+  }
+
   _bindEvents() {
     const c = this.canvas;
 
@@ -359,15 +384,49 @@ class DfgViewer {
     }, { passive: false });
 
     c.addEventListener('mousedown', e => {
-      if (e.button === 0 || e.button === 1) {
+      if (e.button === 1) {
+        // Middle-button: always pan
         this._isPanning = true;
         this._lastPan   = { x: e.clientX, y: e.clientY };
         c.style.cursor  = 'grabbing';
+        e.preventDefault();
+        return;
+      }
+
+      if (e.button === 0) {
+        const rect  = c.getBoundingClientRect();
+        const sx    = (e.clientX - rect.left) * (c.width  / rect.width);
+        const sy    = (e.clientY - rect.top)  * (c.height / rect.height);
+        const world = this.renderer.screenToWorld(sx, sy);
+        const node  = this._hitNode(world);
+
+        if (node) {
+          this._dragNode  = { node, offsetX: world.x - node.x, offsetY: world.y - node.y };
+          this._dragMoved = false;
+          c.style.cursor  = 'grab';
+        } else {
+          this._isPanning = true;
+          this._lastPan   = { x: e.clientX, y: e.clientY };
+          c.style.cursor  = 'grabbing';
+        }
         e.preventDefault();
       }
     });
 
     window.addEventListener('mousemove', e => {
+      if (this._dragNode) {
+        const rect  = this.canvas.getBoundingClientRect();
+        const c     = this.canvas;
+        const sx    = (e.clientX - rect.left) * (c.width  / rect.width);
+        const sy    = (e.clientY - rect.top)  * (c.height / rect.height);
+        const world = this.renderer.screenToWorld(sx, sy);
+        this._dragNode.node.x = world.x - this._dragNode.offsetX;
+        this._dragNode.node.y = world.y - this._dragNode.offsetY;
+        this._dragMoved = true;
+        this.render();
+        return;
+      }
+
       if (!this._isPanning) return;
       this.renderer.adjustPan(e.clientX - this._lastPan.x, e.clientY - this._lastPan.y);
       this._lastPan = { x: e.clientX, y: e.clientY };
@@ -375,7 +434,16 @@ class DfgViewer {
     });
 
     window.addEventListener('mouseup', () => {
-      if (this._isPanning) { this._isPanning = false; this.canvas.style.cursor = ''; }
+      if (this._dragNode) {
+        this._dragNode  = null;
+        this._dragMoved = false;
+        this.canvas.style.cursor = '';
+        return;
+      }
+      if (this._isPanning) {
+        this._isPanning = false;
+        this.canvas.style.cursor = '';
+      }
     });
   }
 
