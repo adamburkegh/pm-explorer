@@ -145,6 +145,38 @@
     }
     .canvas-area canvas:active { cursor: grabbing; }
 
+    /* ── Log Editor panel ──────────────────────────────────────────────────── */
+    #editor-split {
+      flex: 1; display: flex; overflow: hidden;
+    }
+    #editor-textarea {
+      flex: 1; resize: none;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 13px; line-height: 1.7;
+      background: #1a1a1a; color: #d4d4d4; caret-color: #fff;
+      border: none; border-right: 1px solid #3a3a3a;
+      padding: 14px 16px; outline: none; tab-size: 2;
+    }
+    #editor-preview {
+      width: 280px; flex-shrink: 0; overflow-y: auto;
+      padding: 14px 16px; background: #1e1e1e; font-size: 12px;
+    }
+    .ep-section {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: #569cd6; margin: 14px 0 6px;
+    }
+    .ep-section:first-child { margin-top: 0; }
+    .ep-table { width: 100%; border-collapse: collapse; }
+    .ep-table td { padding: 2px 0; color: #aaa; }
+    .ep-table td:last-child { text-align: right; color: #ce9178; font-family: monospace; }
+    .ep-variant { margin-bottom: 10px; }
+    .ep-bar-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+    .ep-bar-bg  { flex: 1; background: #2a2a2a; height: 6px; border-radius: 3px; overflow: hidden; }
+    .ep-bar-fill { height: 100%; background: #264f78; border-radius: 3px; }
+    .ep-count { font-family: monospace; color: #9cdcfe; font-size: 11px; flex-shrink: 0; min-width: 32px; text-align: right; }
+    .ep-acts  { color: #888; font-size: 11px; font-family: monospace; line-height: 1.5; word-break: break-all; }
+    .panel-toolbar .info.error { color: #f44747; }
+
     /* bpmn-js Modeler — hide editor chrome we don't need */
     #im-bpmn-area .djs-palette,
     #im-bpmn-area .djs-context-pad,
@@ -178,6 +210,7 @@
 
   <nav id="tabs">
     <button data-tab="log"   class="active">Log</button>
+    <button data-tab="editor">Log Editor</button>
     <button data-tab="dfg">DFG</button>
     <button data-tab="alpha">Alpha Miner</button>
     <button data-tab="im">Inductive Miner</button>
@@ -200,6 +233,24 @@
   <!-- Log panel -->
   <div id="panel-log" class="panel">
     <div id="log-placeholder">Load an XES file to begin.</div>
+  </div>
+
+  <!-- Log Editor panel -->
+  <div id="panel-editor" class="panel hidden">
+    <div class="panel-toolbar">
+      <button id="btn-editor-apply">&#9654; Apply</button>
+      <button id="btn-editor-load" disabled title="Populate editor from the currently loaded log">&#8595; Load log</button>
+      <span class="info" style="margin-left:2px">Ctrl+Enter to apply</span>
+      <span class="spacer"></span>
+      <span id="editor-status" class="info"></span>
+    </div>
+    <div id="editor-split">
+      <textarea id="editor-textarea" spellcheck="false"
+        placeholder="# One trace per line.&#10;# Space-separated  →  single-word activity names&#10;# Comma-separated  →  multi-word activity names&#10;#&#10;# a b c d&#10;# register request, examine casually, decide, pay compensation"></textarea>
+      <div id="editor-preview">
+        <div style="color:#555;font-size:12px">Edit traces and click &#9654; Apply.</div>
+      </div>
+    </div>
   </div>
 
   <!-- DFG panel -->
@@ -280,6 +331,7 @@
 <script src="js/eventlog/event-log.js"></script>
 <script src="js/eventlog/xes-parser.js"></script>
 <script src="js/eventlog/log-util.js"></script>
+<script src="js/eventlog/dtlog.js"></script>
 <script src="js/pnv/model.js"></script>
 <script src="js/pnv/renderer.js"></script>
 <script src="js/pnv/viewer.js"></script>
@@ -382,6 +434,7 @@ function onLogLoaded(log, name) {
   _imBpmnSimplicity = null;
   _imBpmnXml = null;
   document.getElementById('btn-im-export-bpmn').disabled = true;
+  document.getElementById('btn-editor-load').disabled = false;  // enable "Load log" button
   setConfContent('<div class="conf-message">Load a log and discover a model to check conformance.</div>');
   updateConformanceReady();
 
@@ -438,6 +491,102 @@ _dz.addEventListener('drop', e => {
   e.preventDefault();
   _dz.classList.remove('over');
   if (e.dataTransfer.files[0]) loadXes(e.dataTransfer.files[0]);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Log Editor
+// ═══════════════════════════════════════════════════════════════════════════
+
+function _editorApply() {
+  const text   = document.getElementById('editor-textarea').value;
+  const status = document.getElementById('editor-status');
+
+  if (!text.trim()) {
+    status.textContent = 'Nothing to apply.';
+    status.className   = 'info';
+    return;
+  }
+
+  const { log, errors } = parseDtLog(text);
+
+  if (errors.length) {
+    status.textContent = errors[0];
+    status.className   = 'info error';
+    // Still apply if we got some traces
+    if (!log.length) return;
+  }
+
+  if (!log.length) {
+    status.textContent = 'No traces found.';
+    status.className   = 'info';
+    return;
+  }
+
+  // Feed into main pipeline.  Serialise to XES so backend tabs work too.
+  _logFile = new Blob([eventLogToXml(log)], { type: 'application/xml' });
+  onLogLoaded(log, 'log-editor');
+
+  const sum = getLogSummary(log, log.activityKey);
+  status.textContent = `${sum.traces} traces · ${sum.activities} activities · ${sum.variants} variants`;
+  status.className   = 'info';
+
+  _renderEditorPreview(log);
+}
+
+function _renderEditorPreview(log) {
+  const preview  = document.getElementById('editor-preview');
+  const sum      = getLogSummary(log, log.activityKey);
+  const variants = getVariantsSortedByCount(getUVCL(log, log.activityKey));
+  const maxCount = variants[0]?.[1] ?? 1;
+
+  let html = `
+    <div class="ep-section">Summary</div>
+    <table class="ep-table">
+      <tr><td>Cases</td>      <td>${sum.traces}</td></tr>
+      <tr><td>Activities</td> <td>${sum.activities}</td></tr>
+      <tr><td>Variants</td>   <td>${sum.variants}</td></tr>
+      <tr><td>Events</td>     <td>${sum.events}</td></tr>
+    </table>
+    <div class="ep-section">Variants</div>`;
+
+  for (const [key, count] of variants) {
+    const acts = variantKeyToArray(key);
+    const pct  = Math.round((count / maxCount) * 100);
+    const label = acts.join(' → ');
+    html += `
+    <div class="ep-variant">
+      <div class="ep-bar-row">
+        <div class="ep-bar-bg"><div class="ep-bar-fill" style="width:${pct}%"></div></div>
+        <span class="ep-count">×${count}</span>
+      </div>
+      <div class="ep-acts">${_esc(label)}</div>
+    </div>`;
+  }
+
+  preview.innerHTML = html;
+}
+
+function _esc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Apply button
+document.getElementById('btn-editor-apply').addEventListener('click', _editorApply);
+
+// Ctrl+Enter / Cmd+Enter shortcut in the textarea
+document.getElementById('editor-textarea').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    _editorApply();
+  }
+});
+
+// "Load log" button — populate textarea from current EventLog
+document.getElementById('btn-editor-load').addEventListener('click', () => {
+  if (!_log) return;
+  document.getElementById('editor-textarea').value = eventLogToDtLog(_log);
+  document.getElementById('editor-status').textContent = 'Loaded from current log — edit and Apply to update.';
+  document.getElementById('editor-status').className  = 'info';
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

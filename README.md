@@ -48,5 +48,6 @@ The Petri net viewer is adapted directly from [YAPNE](https://github.com/chimenk
 
 A number of process mining data structures and algorithms have been translated from, or directly use, [pm4py](https://github.com/process-intelligence-solutions/pm4py), including event log parsing and the Inductive Miner.
 
+Support for log editing is based on delimited logs in [koalas](https://github.com/AdamBanham/koalas).
 
 
