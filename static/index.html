@@ -145,6 +145,11 @@
     }
     .canvas-area canvas:active { cursor: grabbing; }
 
+    /* bpmn-js Modeler — hide editor chrome we don't need */
+    #im-bpmn-area .djs-palette,
+    #im-bpmn-area .djs-context-pad,
+    #im-bpmn-area .bio-powered-by { display: none !important; }
+
     /* ── Conformance panel ─────────────────────────────────────────────────── */
     #conf-content {
       flex: 1; overflow-y: auto; padding: 20px;
@@ -282,7 +287,7 @@
 <script src="js/discovery/dfg-renderer.js"></script>
 <script src="js/discovery/alpha-miner.js"></script>
 <script src="js/discovery/inductive-miner.js"></script>
-<script src="js/lib/bpmn-js/bpmn-navigated-viewer.production.min.js"></script>
+<script src="js/lib/bpmn-js/bpmn-modeler.production.min.js"></script>
 <!-- Bundled example log (avoids fetch dependency under file://) -->
 <script src="test/fixtures/running-example-xes.js"></script>
 
@@ -307,7 +312,7 @@ let _imBpmnEpoch      = -1;   // _logEpoch value of the last BPMN fetch
 let _imBpmnSimplicity = null; // {nodes, constructs} from last BPMN fetch, or null
 let _imBpmnXml        = null; // raw BPMN XML string from last fetch, for export
 let _imView           = 'petri'; // 'petri' | 'bpmn'
-let _imBpmnViewer     = null; // bpmn-js NavigatedViewer instance
+let _imBpmnViewer     = null; // bpmn-js Modeler instance (palette/context-pad hidden via CSS)
 
 let _backendConnected = false;
 let _confSource       = 'im';  // 'alpha' | 'im'
@@ -1046,7 +1051,10 @@ async function runImBpmn() {
 
     area.textContent = '';
     if (!_imBpmnViewer) {
-      _imBpmnViewer = new BpmnJS({ container: area });
+      _imBpmnViewer = new BpmnJS({
+        container: area,
+        keyboard: { bindTo: null },   // don't capture page keyboard shortcuts
+      });
     } else {
       _imBpmnViewer.attachTo(area);
     }
