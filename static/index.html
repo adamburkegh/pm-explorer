@@ -173,6 +173,7 @@
 
   <nav id="tabs">
     <button data-tab="log"   class="active">Log</button>
+    <button data-tab="dfg">DFG</button>
     <button data-tab="alpha">Alpha Miner</button>
     <button data-tab="im">Inductive Miner</button>
     <button data-tab="conformance">Conformance</button>
@@ -194,6 +195,19 @@
   <!-- Log panel -->
   <div id="panel-log" class="panel">
     <div id="log-placeholder">Load an XES file to begin.</div>
+  </div>
+
+  <!-- DFG panel -->
+  <div id="panel-dfg" class="panel hidden">
+    <div class="panel-toolbar">
+      <span id="dfg-status" class="info">Load a log and switch to this tab to view the DFG.</span>
+      <span class="spacer"></span>
+      <span id="dfg-stats" class="info"></span>
+      <button id="btn-dfg-fit">Fit view</button>
+    </div>
+    <div class="canvas-area">
+      <canvas id="dfg-canvas"></canvas>
+    </div>
   </div>
 
   <!-- Alpha Miner panel -->
@@ -265,6 +279,7 @@
 <script src="js/pnv/renderer.js"></script>
 <script src="js/pnv/viewer.js"></script>
 <script src="js/pnv/pnml-export.js"></script>
+<script src="js/discovery/dfg-renderer.js"></script>
 <script src="js/discovery/alpha-miner.js"></script>
 <script src="js/discovery/inductive-miner.js"></script>
 <script src="js/lib/bpmn-js/bpmn-navigated-viewer.production.min.js"></script>
@@ -280,6 +295,8 @@ let _log      = null;   // EventLog | null
 let _logName  = null;   // string   | null
 let _logFile  = null;   // File | Blob | null  — kept for backend POSTs
 let _logEpoch = 0;      // incremented each time a new log is loaded
+
+let _dfgEpoch     = -1;   // _logEpoch value of the last DFG run
 
 let _alphaEpoch   = -1;   // _logEpoch value of the last alpha run
 let _alphaTokens  = null; // Map<placeId, number> initial token snapshot
@@ -310,6 +327,13 @@ function switchTab(tab) {
   );
 
   // Panel-specific activation
+  if (tab === 'dfg') {
+    if (_log && _dfgEpoch !== _logEpoch) {
+      runDfg();
+    } else {
+      dfgViewer.fitView();
+    }
+  }
   if (tab === 'alpha') {
     if (_log && _alphaEpoch !== _logEpoch) {
       runAlpha();                // auto-discover when log has changed
@@ -359,6 +383,7 @@ function onLogLoaded(log, name) {
   // Refresh whichever panel is currently visible
   const active = document.querySelector('#tabs button.active')?.dataset.tab;
   if (active === 'log')   renderLog(log);
+  if (active === 'dfg')   runDfg();
   if (active === 'alpha') runAlpha();
   if (active === 'im')    runInductive();
 }
@@ -673,6 +698,176 @@ function layoutNet(net, sourceId) {
     }
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DFG panel
+// ═══════════════════════════════════════════════════════════════════════════
+
+const dfgViewer = new DfgViewer(document.getElementById('dfg-canvas'));
+
+/**
+ * Layered layout for a DFG.
+ *
+ * Returns:
+ *   nodes  — Map<label, {x, y, width, height}>
+ *   ranks  — Map<label, rank>  (used by renderer to detect back-edges)
+ *
+ * Algorithm:
+ *   1. BFS from start activities assigns ranks (longest-path, re-enqueue on increase)
+ *   2. Nodes grouped into columns by rank
+ *   3. 2 × (forward + backward) barycenter passes reduce crossings
+ *   4. Coordinates assigned; columns centred vertically
+ */
+function layoutDfg(graph, startActivities, endActivities) {
+  const NODE_H        = 40;    // node height (px)
+  const Y_GAP         = 90;    // centre-to-centre vertical spacing within a column
+  const INTER_COL_GAP = 110;   // gap between right edge of one column and left edge of next
+  const CHAR_W        = 7.2;   // approx px per character at 12px Arial
+  const NODE_PAD      = 28;    // horizontal padding inside node (both sides total)
+  const MARGIN_LEFT   = 60;    // canvas left margin
+
+  // ── Build frequency-weighted adjacency ─────────────────────────────────────
+  const acts     = new Set();
+  const outEdges = new Map();  // a → Map<b, weight>
+  const inEdges  = new Map();  // a → Map<b, weight>
+
+  const ensureAct = a => {
+    if (acts.has(a)) return;
+    acts.add(a);
+    outEdges.set(a, new Map());
+    inEdges.set(a, new Map());
+  };
+
+  for (const [key, count] of graph) {
+    const [a, b] = dfgKeyParts(key);
+    ensureAct(a); ensureAct(b);
+    if (a !== b) {
+      outEdges.get(a).set(b, (outEdges.get(a).get(b) || 0) + count);
+      inEdges.get(b).set(a, (inEdges.get(b).get(a) || 0) + count);
+    }
+  }
+  for (const a of startActivities.keys()) ensureAct(a);
+  for (const a of endActivities.keys())   ensureAct(a);
+
+  // ── Simple BFS rank assignment (shortest-path distance from start) ─────────
+  // Each node visited exactly once.  Loop-back edges skip already-ranked nodes
+  // rather than inflating ranks — keeps forward-flow activities near the start.
+  const rank  = new Map();
+  const queue = [];
+
+  // Seed only the start activities — the BFS fans out from here.
+  for (const a of startActivities.keys()) {
+    if (!rank.has(a)) { rank.set(a, 0); queue.push(a); }
+  }
+
+  // BFS: each node visited exactly once, rank = shortest distance from start.
+  for (let qi = 0; qi < queue.length; qi++) {
+    const a = queue[qi];
+    const r = rank.get(a);
+    for (const b of outEdges.get(a).keys()) {
+      if (!rank.has(b)) { rank.set(b, r + 1); queue.push(b); }
+    }
+  }
+
+  // Fallback: rank any activity unreachable from start at 0.
+  for (const a of acts) {
+    if (!rank.has(a)) rank.set(a, 0);
+  }
+
+  // ── Pin end activities to the rightmost column ─────────────────────────────
+  // Find the highest rank among non-end nodes; end nodes sit one step beyond it
+  // so they always appear on the right even when loops push their BFS rank low.
+  let innerMax = 0;
+  for (const [a, r] of rank) {
+    if (!endActivities.has(a)) innerMax = Math.max(innerMax, r);
+  }
+  const endRank = innerMax + 1;
+  for (const a of endActivities.keys()) {
+    rank.set(a, Math.max(rank.get(a) ?? 0, endRank));
+  }
+
+  // ── Group into columns ─────────────────────────────────────────────────────
+  const maxRank = Math.max(...rank.values(), 0);
+  const columns = new Map();
+  for (let r = 0; r <= maxRank; r++) columns.set(r, []);
+  for (const [a, r] of rank) columns.get(r).push(a);
+
+  // ── Frequency-weighted barycenter crossing-reduction (4 passes) ───────────
+  const posOrder = new Map();
+  for (const [, col] of columns) col.forEach((a, i) => posOrder.set(a, i));
+
+  const bary = (a, usePrev) => {
+    const edges = (usePrev ? inEdges : outEdges).get(a);
+    if (!edges?.size) return posOrder.get(a) ?? 0;
+    let wSum = 0, total = 0;
+    for (const [n, w] of edges) {
+      wSum += (posOrder.get(n) ?? 0) * w;
+      total += w;
+    }
+    return total ? wSum / total : (posOrder.get(a) ?? 0);
+  };
+
+  const colOrder = [...columns.keys()];
+  for (let pass = 0; pass < 4; pass++) {
+    for (const r of colOrder) {
+      columns.get(r).sort((a, b) => bary(a, true) - bary(b, true));
+      columns.get(r).forEach((a, i) => posOrder.set(a, i));
+    }
+    for (const r of [...colOrder].reverse()) {
+      columns.get(r).sort((a, b) => bary(a, false) - bary(b, false));
+      columns.get(r).forEach((a, i) => posOrder.set(a, i));
+    }
+  }
+
+  // ── Column-width-aware x positioning ──────────────────────────────────────
+  // Column centre x accumulates actual label widths so no two columns overlap.
+  const colWidth = r => {
+    const col = columns.get(r) ?? [];
+    return col.length
+      ? Math.max(...col.map(a => Math.max(100, Math.ceil(a.length * CHAR_W) + NODE_PAD)))
+      : 100;
+  };
+
+  const colCentreX = new Map();
+  let curX = MARGIN_LEFT;
+  for (const r of colOrder) {
+    colCentreX.set(r, curX + colWidth(r) / 2);
+    curX += colWidth(r) + INTER_COL_GAP;
+  }
+
+  // ── Assign pixel coordinates (columns centred vertically) ─────────────────
+  const maxColH = Math.max(...[...columns.values()].map(c => c.length)) * Y_GAP;
+  const nodes   = new Map();
+
+  for (const [r, col] of columns) {
+    const cx     = colCentreX.get(r);
+    const startY = (maxColH - col.length * Y_GAP) / 2 + Y_GAP / 2;
+    col.forEach((act, i) => {
+      const width = Math.max(100, Math.ceil(act.length * CHAR_W) + NODE_PAD);
+      nodes.set(act, { x: cx, y: startY + i * Y_GAP, width, height: NODE_H });
+    });
+  }
+
+  return { nodes, ranks: rank };
+}
+
+function runDfg() {
+  if (!_log) return;
+  const actKey                              = _log.activityKey || DEFAULT_NAME_KEY;
+  const { graph, startActivities, endActivities } = getDFG(_log, { activityKey: actKey });
+  _dfgEpoch = _logEpoch;
+
+  const { nodes, ranks } = layoutDfg(graph, startActivities, endActivities);
+  dfgViewer.load(graph, startActivities, endActivities, nodes, ranks);
+
+  document.getElementById('dfg-status').textContent = _logName ?? '';
+  const acts  = new Set([...graph.keys()].flatMap(k => dfgKeyParts(k)));
+  document.getElementById('dfg-stats').textContent =
+    `${acts.size} activities · ${graph.size} edges`;
+}
+
+document.getElementById('btn-dfg-fit').addEventListener('click',
+  () => dfgViewer.fitView());
 
 function runAlpha() {
   if (!_log) return;
