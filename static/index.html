@@ -290,7 +290,7 @@
       <div class="ex-tabs" id="im-view-tabs">
         <button data-view="petri" class="active">Petri net</button>
         <button data-view="bpmn">BPMN</button>
-        <button data-view="tree" disabled>Process tree</button>
+        <button data-view="tree">Process tree</button>
       </div>
       <span class="spacer"></span>
       <span id="im-stats" class="info"></span>
@@ -340,6 +340,7 @@
 <script src="js/discovery/dfg-renderer.js"></script>
 <script src="js/discovery/alpha-miner.js"></script>
 <script src="js/discovery/inductive-miner.js"></script>
+<script src="js/discovery/process-tree-renderer.js"></script>
 <script src="js/lib/bpmn-js/bpmn-modeler.production.min.js"></script>
 <!-- Bundled example log (avoids fetch dependency under file://) -->
 <script src="test/fixtures/running-example-xes.js"></script>
@@ -361,6 +362,7 @@ let _alphaTokens  = null; // Map<placeId, number> initial token snapshot
 
 let _imEpoch      = -1;   // _logEpoch value of the last IM run
 let _imTokens     = null; // Map<placeId, number> initial token snapshot
+let _imTreeEpoch      = -1;   // _logEpoch value of the last process tree fetch
 let _imBpmnEpoch      = -1;   // _logEpoch value of the last BPMN fetch
 let _imBpmnSimplicity = null; // {nodes, constructs} from last BPMN fetch, or null
 let _imBpmnXml        = null; // raw BPMN XML string from last fetch, for export
@@ -432,6 +434,7 @@ function onLogLoaded(log, name) {
   document.getElementById('log-badge').textContent =
     `${name}  ·  ${sum.traces} traces  ·  ${sum.activities} acts  ·  ${sum.variants} variants`;
 
+  _imTreeEpoch      = -1;
   _imBpmnSimplicity = null;
   _imBpmnXml = null;
   document.getElementById('btn-im-export-bpmn').disabled = true;
@@ -1173,7 +1176,7 @@ document.getElementById('btn-im-export-bpmn').addEventListener('click', () => {
 const _imViewSource = {
   petri: 'Petri net · computed locally',
   bpmn:  'BPMN · requires server',
-  tree:  'Process tree · coming soon',
+  tree:  'Process tree · requires server',
 };
 
 function switchImView(view) {
@@ -1189,6 +1192,9 @@ function switchImView(view) {
   if (view === 'bpmn') {
     if (_imBpmnEpoch !== _imEpoch) runImBpmn();
     else _imBpmnViewer?.get('canvas').zoom('fit-viewport');
+  }
+  if (view === 'tree') {
+    if (_imTreeEpoch !== _imEpoch) runImTree();
   }
 }
 
@@ -1226,6 +1232,30 @@ async function runImBpmn() {
     await _imBpmnViewer.importXML(bpmn);
     _imBpmnViewer.get('canvas').zoom('fit-viewport');
     _imBpmnEpoch = _imEpoch;
+  } catch (e) {
+    area.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function runImTree() {
+  const area = document.getElementById('im-tree-area');
+  if (!_backendConnected) {
+    area.textContent = 'Backend not connected.';
+    return;
+  }
+  if (!_logFile) return;
+
+  area.textContent = 'Running…';
+  const fd = new FormData();
+  fd.append('xes_file', _logFile, 'log.xes');
+
+  try {
+    const resp = await fetch('/api/mine/inductive/tree', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const tree = await resp.json();
+    area.textContent = '';
+    renderProcessTree(tree, area);
+    _imTreeEpoch = _imEpoch;
   } catch (e) {
     area.textContent = `Error: ${e.message}`;
   }

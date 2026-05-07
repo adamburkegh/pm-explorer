@@ -1,6 +1,6 @@
 import json
-from flask import Blueprint, jsonify, request
 import pm4py
+from flask import Blueprint, jsonify, request
 from pmws.xes import load_xes
 from pmws.pnconvert import from_json
 
