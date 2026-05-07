@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>DFG Sankey Explorer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; display: flex; flex-direction: column;
+                 background: #1e1e1e; color: #d4d4d4; font-family: sans-serif; font-size: 13px; }
+
+    /* ── Toolbar ─────────────────────────────────────────────────────────── */
+    #toolbar {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 8px 14px; background: #2d2d2d; border-bottom: 1px solid #444;
+      flex-shrink: 0;
+    }
+    #logo { font-weight: bold; font-size: 14px; color: #9cdcfe;
+            padding-right: 12px; border-right: 1px solid #444; }
+    #toolbar label { display: flex; align-items: center; gap: 6px; color: #aaa; font-size: 12px; }
+    #sel-center { background: #3c3c3c; color: #d4d4d4; border: 1px solid #555;
+                  border-radius: 3px; padding: 3px 6px; font-size: 12px; min-width: 180px; }
+    #depth-wrap { display: flex; align-items: center; gap: 8px; }
+    #sld-depth  { width: 120px; accent-color: #9cdcfe; cursor: pointer; }
+    #lbl-depth  { color: #d4d4d4; font-size: 12px; min-width: 18px; text-align: right; font-family: monospace; }
+    button { background: #3c3c3c; color: #d4d4d4; border: 1px solid #555; border-radius: 3px;
+             padding: 4px 10px; cursor: pointer; font-size: 12px; }
+    button:hover { background: #505050; }
+    #status { font-size: 11px; color: #666; margin-left: auto; }
+
+    /* ── Canvas ──────────────────────────────────────────────────────────── */
+    #canvas { flex: 1; display: block; cursor: grab; }
+    #canvas:active { cursor: grabbing; }
+
+    /* ── Legend ──────────────────────────────────────────────────────────── */
+    #legend {
+      position: absolute; bottom: 12px; right: 14px;
+      background: rgba(30,30,30,0.88); border: 1px solid #444; border-radius: 5px;
+      padding: 8px 12px; font-size: 11px; color: #aaa; pointer-events: none;
+    }
+    #legend div { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    #legend div:last-child { margin-bottom: 0; }
+    .leg-swatch { width: 28px; height: 10px; border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span id="logo">DFG Sankey</span>
+
+  <label>Centre:
+    <select id="sel-center"><option value="">— load a log —</option></select>
+  </label>
+
+  <label>Hop depth:</label>
+  <div id="depth-wrap">
+    <button id="btn-depth-minus" disabled>−</button>
+    <input id="sld-depth" type="range" min="1" max="1" value="2" disabled>
+    <span id="lbl-depth">2</span>
+    <button id="btn-depth-plus" disabled>+</button>
+  </div>
+
+  <button id="btn-example">Load example</button>
+  <button id="btn-browse">Browse…</button>
+  <input id="file-input" type="file" accept=".xes,.txt" style="display:none">
+
+  <span id="status"></span>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<div id="legend">
+  <div><div class="leg-swatch" style="background:rgba(99,179,237,0.6)"></div> Forward flow</div>
+  <div><div class="leg-swatch" style="background:rgba(252,165,57,0.50)"></div> Return / loop flow</div>
+  <div><div class="leg-swatch" style="background:#dbeafe;border:1px solid #2563eb"></div> Centre activity</div>
+  <div style="color:#666;font-size:10px;margin-top:4px">Node height ∝ frequency · Edge width ∝ count</div>
+</div>
+
+<!-- ── Shared infrastructure ───────────────────────────────────────────────── -->
+<script src="js/eventlog/constants.js"></script>
+<script src="js/eventlog/event-log.js"></script>
+<script src="js/eventlog/xes-parser.js"></script>
+<script src="js/eventlog/log-util.js"></script>
+<script src="js/eventlog/dtlog.js"></script>
+<script src="test/fixtures/running-example-xes.js"></script>
+
+<script>
+'use strict';
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DFG Provider
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// Swap this object to use a web-service backend instead of client-side compute.
+//
+// Contract:  compute(log) → Promise<DfgData>
+//
+// DfgData = {
+//   graph:           Map<string,number>   dfgKey(a,b) → directly-follows count
+//   startActivities: Map<string,number>   activity → count as first event
+//   endActivities:   Map<string,number>   activity → count as last event
+//   activityFreq:    Map<string,number>   activity → total event occurrences
+// }
+//
+// Web-service example:
+//   const DfgProvider = {
+//     async compute(log) {
+//       const fd = new FormData();
+//       fd.append('xes_file', new Blob([eventLogToXml(log)], {type:'application/xml'}), 'log.xes');
+//       const data = await fetch('/api/dfg', { method: 'POST', body: fd }).then(r => r.json());
+//       return {
+//         graph:           new Map(Object.entries(data.graph)),
+//         startActivities: new Map(Object.entries(data.startActivities)),
+//         endActivities:   new Map(Object.entries(data.endActivities)),
+//         activityFreq:    new Map(Object.entries(data.activityFreq)),
+//       };
+//     }
+//   };
+//
+const DfgProvider = {
+  async compute(log) {
+    const actKey = log.activityKey;
+    const { graph, startActivities, endActivities } = getDFG(log);
+
+    const activityFreq = new Map();
+    for (const trace of log) {
+      for (const event of trace) {
+        const act = event.get(actKey);
+        if (act !== undefined)
+          activityFreq.set(act, (activityFreq.get(act) ?? 0) + 1);
+      }
+    }
+    return { graph, startActivities, endActivities, activityFreq };
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Max useful hop depth
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Longest shortest path reachable from any start activity, following forward
+ * edges only (simple BFS — each node visited once, so cycles don't inflate
+ * the result).  This is the maximum hop depth at which new activities appear.
+ *
+ * @param {Map<string,number>} graph
+ * @param {Map<string,number>} startActivities
+ * @returns {number}
+ */
+function computeMaxHops(graph, startActivities) {
+  const out = new Map();
+  for (const [key] of graph) {
+    const [a, b] = dfgKeyParts(key);
+    if (!out.has(a)) out.set(a, new Set());
+    out.get(a).add(b);
+  }
+
+  let maxDepth = 1;
+  for (const start of startActivities.keys()) {
+    const visited = new Set([start]);
+    const queue   = [{ node: start, depth: 0 }];
+    for (let qi = 0; qi < queue.length; qi++) {
+      const { node, depth } = queue[qi];
+      maxDepth = Math.max(maxDepth, depth);
+      for (const next of (out.get(node) ?? [])) {
+        if (!visited.has(next)) {
+          visited.add(next);
+          queue.push({ node: next, depth: depth + 1 });
+        }
+      }
+    }
+  }
+  return maxDepth;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Ego-subgraph extraction
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * BFS outward from `center` up to `maxHops` steps in both directions.
+ * Returns the set of reachable activities with their signed hop distance
+ * (positive = successor, negative = predecessor) and the edges between them.
+ *
+ * @param {Map<string,number>} graph      dfgKey → count
+ * @param {string}             center     focal activity
+ * @param {number}             maxHops    maximum hops in each direction
+ * @returns {{ nodes: Map<string,number>, edges: Map<string,number> }}
+ */
+function buildEgoSubgraph(graph, center, maxHops) {
+  // Build adjacency
+  const out = new Map();  // a → Map<b, count>
+  const inn = new Map();  // b → Map<a, count>
+  for (const [key, count] of graph) {
+    const [a, b] = dfgKeyParts(key);
+    if (!out.has(a)) out.set(a, new Map());
+    if (!inn.has(b)) inn.set(b, new Map());
+    out.get(a).set(b, count);
+    inn.get(b).set(a, count);
+  }
+
+  const nodes = new Map();  // activity → hop distance
+  nodes.set(center, 0);
+  const queue = [{ act: center, hop: 0 }];
+
+  for (let qi = 0; qi < queue.length; qi++) {
+    const { act, hop } = queue[qi];
+    if (Math.abs(hop) >= maxHops) continue;
+
+    // Forward successors
+    for (const [next] of (out.get(act) ?? [])) {
+      if (!nodes.has(next)) {
+        nodes.set(next, hop + 1);
+        queue.push({ act: next, hop: hop + 1 });
+      }
+    }
+    // Backward predecessors
+    for (const [prev] of (inn.get(act) ?? [])) {
+      if (!nodes.has(prev)) {
+        nodes.set(prev, hop - 1);
+        queue.push({ act: prev, hop: hop - 1 });
+      }
+    }
+  }
+
+  // Collect edges whose both endpoints are in the subgraph
+  const edges = new Map();
+  for (const [key, count] of graph) {
+    const [a, b] = dfgKeyParts(key);
+    if (nodes.has(a) && nodes.has(b)) edges.set(key, count);
+  }
+
+  return { nodes, edges };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Layout
+// ══════════════════════════════════════════════════════════════════════════════
+
+const LAYOUT = {
+  marginX:  70,
+  marginY:  40,
+  nodeW:    160,
+  vGap:     14,
+  minNodeH: 18,   // minimum legible height (floor only — not used for scaling)
+  nodePad:   6,   // whitespace inside node before port stacking begins
+  zoneSep:   8,   // gap between forward-edge and back-edge port zones on a node side
+  pipeGap:  64,   // vertical gap between bottom of nodes and top of return-flow row
+  laneGap:   6,   // vertical gap between adjacent back-edge lanes
+};
+
+/**
+ * Compute pixel positions for nodes and edges.
+ *
+ * Sizing principle: a single shared scale K (px per event occurrence) is used
+ * for both node heights and edge widths, so that edge bands sum to node height
+ * (flow conservation).  K is chosen so the busiest column fills the available
+ * vertical space.
+ *
+ * Port separation: each node side is split into two zones.  Forward edges use
+ * the upper zone; back-edges use the lower zone.  This keeps return flow
+ * visually distinct at the node face.
+ *
+ * Back-edge routing: instead of arcing above the diagram, back-edges drop from
+ * the right side of the source node into a horizontal "return row" below all
+ * activities, travel right-to-left, then rise into the left side of the target.
+ *
+ * @param {Map<string,number>} subNodes    activity → hop
+ * @param {Map<string,number>} subEdges    dfgKey   → count
+ * @param {Map<string,number>} actFreq     activity → frequency
+ * @param {number} W canvas width
+ * @param {number} H canvas height
+ */
+function computeLayout(subNodes, subEdges, actFreq, W, H) {
+  const { marginX, marginY, nodeW, vGap, minNodeH, nodePad, zoneSep, pipeGap, laneGap } = LAYOUT;
+
+  const flowWidthScale = 0.6;
+  const portGap = 1;
+
+  // ── 1. Group nodes into columns by hop distance ───────────────────────────
+  const cols = new Map();  // hop → string[]
+  for (const [act, hop] of subNodes) {
+    if (!cols.has(hop)) cols.set(hop, []);
+    cols.get(hop).push(act);
+  }
+  const hops = [...cols.keys()].sort((a, b) => a - b);
+  const numCols = hops.length;
+
+  // ── 2. Shared scale K: px per event occurrence ────────────────────────────
+  // Reserve the top half of H for nodes; the pipe row will sit below.
+  // K is set so the busiest column fills the node area.
+  const nodeAreaH = H * 0.6 - marginY;   // use 60 % of height for nodes at first pass
+  let maxColLoad  = 0;
+  let maxColNodes = 0;
+  for (const acts of cols.values()) {
+    const load = acts.reduce((s, a) => s + (actFreq.get(a) ?? 1), 0);
+    if (load > maxColLoad) { maxColLoad = load; maxColNodes = acts.length; }
+  }
+  const gapSpace  = vGap * Math.max(0, maxColNodes - 1);
+  const padSpace  = maxColNodes * 2 * nodePad;   // nodePad top+bottom per node
+  const K = (maxColLoad > 0
+                ? Math.max(1, (nodeAreaH - gapSpace - padSpace) / maxColLoad)
+                : 1) * flowWidthScale;
+
+  // nodeH reserves 2·nodePad for breathing room; edge widths use K only.
+  // This ensures Σ(edge widths) ≈ node.h − 2·nodePad, so ports never overflow.
+  const nodeH     = act => Math.max(minNodeH, (actFreq.get(act) ?? 1) * K + 2 * nodePad);
+  const edgeWidth = c   => Math.max(1, c * K);
+
+  // ── 3. Column x positions ─────────────────────────────────────────────────
+  const availW = W - marginX * 2 - nodeW;
+  const colX = hop => {
+    const ci = hops.indexOf(hop);
+    return marginX + (numCols > 1 ? ci * availW / (numCols - 1) : availW / 2);
+  };
+
+  // ── 4. Stack nodes vertically in each column ──────────────────────────────
+  const nodeLayout = new Map();  // act → {x, y, w, h, hop}
+
+  for (const hop of hops) {
+    const acts = [...cols.get(hop)].sort(
+      (a, b) => (actFreq.get(b) ?? 0) - (actFreq.get(a) ?? 0)
+    );
+    const heights = acts.map(nodeH);
+    const totalH  = heights.reduce((s, h) => s + h, 0) + vGap * (acts.length - 1);
+    let y = Math.max(marginY, (H * 0.6 - totalH) / 2);
+    const x = colX(hop);
+    for (let i = 0; i < acts.length; i++) {
+      nodeLayout.set(acts[i], { x, y, w: nodeW, h: heights[i], hop });
+      y += heights[i] + vGap;
+    }
+  }
+
+  // ── 5. Classify edges as forward or back ──────────────────────────────────
+  const isBackEdge = key => {
+    const [a, b] = dfgKeyParts(key);
+    const sn = nodeLayout.get(a), tn = nodeLayout.get(b);
+    return sn && tn && sn.hop >= tn.hop;
+  };
+
+  // Build per-node edge lists, split by direction
+  const fwdOut  = new Map(), backOut = new Map();  // act → [{key,count,other}]
+  const fwdIn   = new Map(), backIn  = new Map();
+  for (const act of subNodes.keys()) {
+    fwdOut.set(act, []); backOut.set(act, []);
+    fwdIn .set(act, []); backIn .set(act, []);
+  }
+  for (const [key, count] of subEdges) {
+    const [a, b] = dfgKeyParts(key);
+    if (isBackEdge(key)) {
+      backOut.get(a)?.push({ key, count, other: b });
+      backIn .get(b)?.push({ key, count, other: a });
+    } else {
+      fwdOut.get(a)?.push({ key, count, other: b });
+      fwdIn .get(b)?.push({ key, count, other: a });
+    }
+  }
+
+  // ── 6. Assign Sankey ports with zone separation ───────────────────────────
+  //
+  // Right side of a node:  [nodePad] fwd-out bands [zoneSep] back-out bands [nodePad]
+  // Left  side of a node:  [nodePad] fwd-in  bands [zoneSep] back-in  bands [nodePad]
+  //
+  // Both zones are centred together inside the node height.
+
+  const centerY = act => {
+    const n = nodeLayout.get(act);
+    return n ? n.y + n.h / 2 : 0;
+  };
+  const sortByOther = arr => arr.sort((a, b) => centerY(a.other) - centerY(b.other));
+
+  const srcPortY = new Map();
+  const tgtPortY = new Map();
+
+  const stackZones = (portMap, node, zoneA, zoneB) => {
+    sortByOther(zoneA); sortByOther(zoneB);
+    const totalA = zoneA.reduce((s, e) => s + edgeWidth(e.count), 0) + Math.max(0, zoneA.length - 1) * portGap;
+    const totalB = zoneB.reduce((s, e) => s + edgeWidth(e.count), 0) + Math.max(0, zoneB.length - 1) * portGap;
+    const sep    = (zoneA.length && zoneB.length) ? zoneSep : 0;
+    const total  = totalA + sep + totalB;
+    let y = node.y + nodePad + Math.max(0, (node.h - 2 * nodePad - total) / 2);
+    for (let i = 0; i < zoneA.length; i++) {
+      const w = edgeWidth(zoneA[i].count);
+      portMap.set(zoneA[i].key, y + w / 2);
+      y += w + (i < zoneA.length - 1 ? portGap : 0);
+    }
+    y += sep;
+    for (let i = 0; i < zoneB.length; i++) {
+      const w = edgeWidth(zoneB[i].count);
+      portMap.set(zoneB[i].key, y + w / 2);
+      y += w + (i < zoneB.length - 1 ? portGap : 0);
+    }
+  };
+
+  for (const [act] of subNodes) {
+    const node = nodeLayout.get(act);
+    if (!node) continue;
+    stackZones(srcPortY, node, fwdOut.get(act) ?? [], backOut.get(act) ?? []);
+    stackZones(tgtPortY, node, fwdIn .get(act) ?? [], backIn .get(act) ?? []);
+  }
+
+  // ── 7. Assign pipe lanes for back-edges ───────────────────────────────────
+  //
+  // Lanes are sorted by horizontal span (shortest → shallowest) to minimise
+  // crossings in the drop/rise segments.
+
+  let maxNodeBottom = 0;
+  for (const { y, h } of nodeLayout.values()) maxNodeBottom = Math.max(maxNodeBottom, y + h);
+  const pipeTop = maxNodeBottom + pipeGap;
+
+  const backEdgeList = [];
+  for (const [key, count] of subEdges) {
+    if (!isBackEdge(key)) continue;
+    const [a, b] = dfgKeyParts(key);
+    const sn = nodeLayout.get(a), tn = nodeLayout.get(b);
+    if (!sn || !tn) continue;
+    backEdgeList.push({ key, count, sx: sn.x + sn.w, tx: tn.x });
+  }
+  backEdgeList.sort((a, b) => Math.abs(a.sx - a.tx) - Math.abs(b.sx - b.tx));
+
+  const edgePipeY = new Map();   // dfgKey → centre-y of its pipe lane
+  let laneY = pipeTop;
+  for (const { key, count } of backEdgeList) {
+    const hw = edgeWidth(count) / 2;
+    edgePipeY.set(key, laneY + hw);
+    laneY += edgeWidth(count) + laneGap;
+  }
+  const pipeBottom = laneY;
+
+  // ── 8. Assemble edge descriptors ──────────────────────────────────────────
+  const edgeLayout = [];
+  for (const [key, count] of subEdges) {
+    const [a, b] = dfgKeyParts(key);
+    const sn = nodeLayout.get(a);
+    const tn = nodeLayout.get(b);
+    if (!sn || !tn) continue;
+    const isBack = isBackEdge(key);
+    edgeLayout.push({
+      from: a, to: b, count,
+      sx: sn.x + sn.w,  sy: srcPortY.get(key) ?? (sn.y + sn.h / 2),
+      tx: tn.x,          ty: tgtPortY.get(key) ?? (tn.y + tn.h / 2),
+      width: edgeWidth(count),
+      isBack,
+      pipeY: edgePipeY.get(key),   // centre-y of pipe lane (back-edges only)
+    });
+  }
+
+  return { nodeLayout, edgeLayout, pipeTop, pipeBottom };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Renderer
+// ══════════════════════════════════════════════════════════════════════════════
+
+class DfgSankeyRenderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx    = canvas.getContext('2d');
+
+    this.nodeLayout    = new Map();
+    this.edgeLayout    = [];
+    this.centerActivity = null;
+
+    this.pan  = { x: 0, y: 0 };
+    this.zoom = 1;
+
+    this.theme = {
+      bg:              '#ffffff',
+      nodeDefault:     '#f1f5f9',
+      nodeCenter:      '#dbeafe',
+      nodeBorder:      '#64748b',
+      nodeBorderCenter:'#2563eb',
+      labelColor:      '#1e293b',
+      edgeFwd:         'rgba(99,179,237,0.55)',
+      edgeBack:        'rgba(252,165,57,0.50)',
+      edgeCountColor:  '#475569',
+    };
+  }
+
+  setData(nodeLayout, edgeLayout, centerActivity, pipeTop = 0, pipeBottom = 0) {
+    this.nodeLayout     = nodeLayout;
+    this.edgeLayout     = edgeLayout;
+    this.centerActivity = centerActivity;
+    this.pipeTop        = pipeTop;
+    this.pipeBottom     = pipeBottom;
+  }
+
+  // ── Viewport ────────────────────────────────────────────────────────────────
+
+  screenToWorld(sx, sy) {
+    return { x: (sx - this.pan.x) / this.zoom, y: (sy - this.pan.y) / this.zoom };
+  }
+
+  adjustPan(dx, dy)          { this.pan.x += dx; this.pan.y += dy; }
+
+  adjustZoom(factor, cx, cy) {
+    const wx = (cx - this.pan.x) / this.zoom;
+    const wy = (cy - this.pan.y) / this.zoom;
+    this.zoom   = Math.max(0.1, Math.min(5, this.zoom * factor));
+    this.pan.x  = cx - wx * this.zoom;
+    this.pan.y  = cy - wy * this.zoom;
+  }
+
+  fitView(padding = 48) {
+    if (!this.nodeLayout.size) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    for (const { x, y, w, h } of this.nodeLayout.values()) {
+      minX = Math.min(minX, x);     minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    }
+    // Include the pipe row (back-edge return corridor) in the bounding box
+    if (this.pipeBottom > maxY) maxY = this.pipeBottom;
+
+    const netW = maxX - minX || 1, netH = maxY - minY || 1;
+    this.zoom   = Math.max(0.1, Math.min(5, Math.min(
+      (this.canvas.width  - padding * 2) / netW,
+      (this.canvas.height - padding * 2) / netH,
+    )));
+    this.pan.x  = padding - minX * this.zoom;
+    this.pan.y  = padding - minY * this.zoom;
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  render() {
+    const { ctx, canvas, theme } = this;
+    ctx.fillStyle = theme.bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // ── Return-flow highway background (drawn in screen space) ───────────────
+    if (this.pipeTop && this.pipeBottom > this.pipeTop) {
+      // Convert world-space pipe bounds to screen space
+      const sepY  = this.pipeTop  * this.zoom + this.pan.y;  // top of pipe area
+      const botY  = this.pipeBottom * this.zoom + this.pan.y + 8 * this.zoom;
+
+      if (sepY < canvas.height && botY > 0) {
+        // Subtle shaded band behind the lanes
+        ctx.fillStyle = 'rgba(0,0,0,0.04)';
+        ctx.fillRect(0, sepY, canvas.width, Math.min(canvas.height, botY) - sepY);
+
+        // Dashed separator line at the top of the highway
+        ctx.save();
+        ctx.strokeStyle = 'rgba(100,100,100,0.25)';
+        ctx.lineWidth   = 1;
+        ctx.setLineDash([6, 5]);
+        ctx.beginPath();
+        ctx.moveTo(0, sepY);
+        ctx.lineTo(canvas.width, sepY);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    ctx.save();
+    ctx.translate(this.pan.x, this.pan.y);
+    ctx.scale(this.zoom, this.zoom);
+    this._drawEdges();
+    this._drawNodes();
+    ctx.restore();
+  }
+
+  _drawEdges() {
+    const ctx = this.ctx;
+
+    // Draw in two passes: forward edges first, then back-edges on top
+    for (const pass of [false, true]) {
+      for (const e of this.edgeLayout) {
+        if (e.isBack !== pass) continue;
+
+        const { sx, sy, tx, ty, width, isBack } = e;
+        const cpOff = Math.max(40, Math.abs(tx - sx) * 0.45);
+
+        if (!isBack) {
+          // ── Forward edge: full-width Sankey band with triangle arrowhead ─
+          const hw       = width / 2;
+          const arrowLen = Math.min(20, Math.max(8, width * 1.5));
+          const bx       = tx - arrowLen;   // where the band ends, triangle begins
+          const bandCp   = Math.max(30, Math.abs(bx - sx) * 0.45);
+          ctx.beginPath();
+          ctx.moveTo(sx, sy - hw);
+          ctx.bezierCurveTo(sx + bandCp, sy - hw, bx - bandCp, ty - hw, bx, ty - hw);
+          ctx.lineTo(tx, ty);               // arrowhead tip
+          ctx.lineTo(bx, ty + hw);
+          ctx.bezierCurveTo(bx - bandCp, ty + hw, sx + bandCp, sy + hw, sx, sy + hw);
+          ctx.closePath();
+          ctx.fillStyle = this.theme.edgeFwd;
+          ctx.fill();
+        } else {
+          // ── Back edge: gutter-routed U-tube through the return-flow row ──
+          //
+          // The drop and rise segments are jogged outward into the inter-column
+          // gutters so they never run alongside other nodes in the same column.
+          // This prevents the stroke from bleeding into inter-node gaps.
+          //
+          //  sx ─► dropX          riseX ◄─ tx
+          //         │                 │
+          //         └──── pipe ───────┘   (at pipeY)
+          //
+          // Both vertical segments sit entirely outside the column node extent.
+          // lineJoin='round' gives smooth bevelled corners throughout.
+          //
+          const hw       = width / 2;
+          const py       = e.pipeY;
+          const arrowLen = Math.min(20, Math.max(8, width * 1.5));
+          // riseGutter includes an extra hw stub so the stroke's lineJoin='round' fires
+          // at the rise→entry corner, restoring the bevelled turn. The stub ends exactly
+          // where the arrowhead base begins — no overlap, no alpha compounding.
+          const dropGutter = hw + 3;
+          const riseGutter = Math.max(hw + 3, arrowLen) + hw;
+          const dropX  = sx + dropGutter;
+          const riseX  = tx - riseGutter;
+          const stubX  = riseX + hw;   // stroke end / arrowhead base
+
+          // U-tube stroke: exit → drop → pipe → rise → short stub (fires round corner)
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(sx,    sy);   // exit right wall of source node
+          ctx.lineTo(dropX, sy);   // jog into right gutter
+          ctx.lineTo(dropX, py);   // drop in gutter to pipe level
+          ctx.lineTo(riseX, py);   // pipe run right-to-left
+          ctx.lineTo(riseX, ty);   // rise in gutter from pipe level
+          ctx.lineTo(stubX, ty);   // stub → lineJoin='round' bevels the rise→entry corner
+          ctx.strokeStyle = this.theme.edgeBack;
+          ctx.lineWidth   = 2 * hw;
+          ctx.lineJoin    = 'round';
+          ctx.lineCap     = 'butt';
+          ctx.stroke();
+          ctx.restore();
+
+          // Entry arrowhead: filled triangle — base at stubX (aligned to stroke end, no overlap)
+          ctx.beginPath();
+          ctx.moveTo(tx,    ty);        // tip at left wall of target
+          ctx.lineTo(stubX, ty - hw);  // base top
+          ctx.lineTo(stubX, ty + hw);  // base bottom
+          ctx.closePath();
+          ctx.fillStyle = this.theme.edgeBack;
+          ctx.fill();
+
+          // Directional hint: left-pointing chevron on the pipe run
+          const arrowAt = riseX + (dropX - riseX) * 0.4;
+          const as = Math.max(6, hw * 1.2);
+          ctx.beginPath();
+          ctx.moveTo(arrowAt - as, py);
+          ctx.lineTo(arrowAt, py - hw * 0.75);
+          ctx.lineTo(arrowAt, py + hw * 0.75);
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(255,255,255,0.4)';
+          ctx.fill();
+        }
+
+        // ── Edge count label ────────────────────────────────────────────────
+        const hw_lbl       = e.width / 2;
+        const arrowLen_lbl = Math.min(20, Math.max(8, e.width * 1.5));
+        const lx = isBack
+          ? ((sx + hw_lbl + 3) + (tx - Math.max(hw_lbl + 3, arrowLen_lbl) - hw_lbl)) / 2
+          : (sx + tx) / 2;
+        const ly = isBack ? e.pipeY : (sy + ty) / 2;
+
+        const label = e.count.toLocaleString();
+        ctx.font      = '9px Arial';
+        const tw      = ctx.measureText(label).width;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(lx - tw / 2 - 2, ly - 6, tw + 4, 12);
+        ctx.fillStyle    = this.theme.edgeCountColor;
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, lx, ly);
+      }
+    }
+  }
+
+  _drawNodes() {
+    const ctx = this.ctx;
+    const cr  = 5;
+
+    for (const [act, { x, y, w, h }] of this.nodeLayout) {
+      const isCenter = act === this.centerActivity;
+
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, cr);
+      ctx.fillStyle   = isCenter ? this.theme.nodeCenter : this.theme.nodeDefault;
+      ctx.fill();
+      ctx.strokeStyle = isCenter ? this.theme.nodeBorderCenter : this.theme.nodeBorder;
+      ctx.lineWidth   = isCenter ? 2.5 : 1;
+      ctx.stroke();
+
+      // Label — scale font to node height, clip to node width
+      const fontSize = Math.max(9, Math.min(13, h * 0.35));
+      ctx.font         = `${fontSize}px Arial`;
+      ctx.fillStyle    = this.theme.labelColor;
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(act, x + w / 2, y + h / 2, w - 10);
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Application state
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _log      = null;
+let _dfgData  = null;
+
+const canvas   = document.getElementById('canvas');
+const renderer = new DfgSankeyRenderer(canvas);
+
+// ── Sync canvas size to CSS size ─────────────────────────────────────────────
+function syncSize() {
+  const r = canvas.getBoundingClientRect();
+  if (r.width && r.height) { canvas.width = r.width; canvas.height = r.height; }
+}
+new ResizeObserver(() => { syncSize(); rerender(); }).observe(canvas);
+
+// ── Pan / zoom ───────────────────────────────────────────────────────────────
+let _panning = false, _lastPan = null;
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r  = canvas.getBoundingClientRect();
+  const cx = (e.clientX - r.left) * (canvas.width  / r.width);
+  const cy = (e.clientY - r.top)  * (canvas.height / r.height);
+  renderer.adjustZoom(e.deltaY < 0 ? 1.1 : 1 / 1.1, cx, cy);
+  renderer.render();
+}, { passive: false });
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 0 || e.button === 1) {
+    _panning = true; _lastPan = { x: e.clientX, y: e.clientY };
+    e.preventDefault();
+  }
+});
+window.addEventListener('mousemove', e => {
+  if (!_panning) return;
+  renderer.adjustPan(e.clientX - _lastPan.x, e.clientY - _lastPan.y);
+  _lastPan = { x: e.clientX, y: e.clientY };
+  renderer.render();
+});
+window.addEventListener('mouseup', () => { _panning = false; });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Core update cycle
+// ══════════════════════════════════════════════════════════════════════════════
+
+function rerender() {
+  if (!_dfgData || !_log) { renderer.render(); return; }
+
+  const center  = document.getElementById('sel-center').value;
+  const maxHops = parseInt(document.getElementById('sld-depth').value, 10) || 2;
+
+  if (!center || !_dfgData.activityFreq.has(center)) { renderer.render(); return; }
+
+  syncSize();
+  const { nodes, edges } = buildEgoSubgraph(_dfgData.graph, center, maxHops);
+  const { nodeLayout, edgeLayout, pipeTop, pipeBottom } = computeLayout(
+    nodes, edges, _dfgData.activityFreq,
+    canvas.width, canvas.height
+  );
+  renderer.setData(nodeLayout, edgeLayout, center, pipeTop, pipeBottom);
+  renderer.fitView();
+  renderer.render();
+
+  document.getElementById('status').textContent =
+    `${nodes.size} activities · ${edges.size} edges shown`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Log loading
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function onLogLoaded(log, name) {
+  _log     = log;
+  _dfgData = null;
+
+  document.getElementById('status').textContent = 'Computing DFG…';
+
+  try {
+    _dfgData = await DfgProvider.compute(log);
+  } catch (e) {
+    document.getElementById('status').textContent = `Error: ${e.message}`;
+    return;
+  }
+
+  // Populate activity select, sorted by frequency
+  const sel  = document.getElementById('sel-center');
+  const acts = [..._dfgData.activityFreq.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([act]) => act);
+
+  const prev = sel.value;
+  sel.innerHTML = acts.map(a =>
+    `<option value="${a.replace(/"/g, '&quot;')}">${a}</option>`
+  ).join('');
+  sel.value = acts.includes(prev) ? prev : (acts[0] ?? '');
+
+  // Set hop-depth slider max = longest shortest path from any start activity
+  // (a reasonable upper bound is the number of distinct activities minus 1)
+  const sld = document.getElementById('sld-depth');
+  const maxPossible = computeMaxHops(_dfgData.graph, _dfgData.startActivities);
+  const curDepth    = Math.min(parseInt(sld.value, 10) || 2, maxPossible);
+  sld.max      = maxPossible;
+  sld.value    = curDepth;
+  sld.disabled = false;
+  document.getElementById('btn-depth-minus').disabled = false;
+  document.getElementById('btn-depth-plus').disabled  = false;
+  document.getElementById('lbl-depth').textContent = curDepth;
+
+  document.getElementById('status').textContent = name;
+  rerender();
+}
+
+// ── Controls ─────────────────────────────────────────────────────────────────
+
+document.getElementById('sel-center').addEventListener('change', rerender);
+
+const _sldDepth = document.getElementById('sld-depth');
+const _lblDepth = document.getElementById('lbl-depth');
+const _btnMinus = document.getElementById('btn-depth-minus');
+const _btnPlus  = document.getElementById('btn-depth-plus');
+
+function _setDepth(v) {
+  const val = Math.max(parseInt(_sldDepth.min, 10), Math.min(parseInt(_sldDepth.max, 10), v));
+  _sldDepth.value = val;
+  _lblDepth.textContent = val;
+  rerender();
+}
+
+_sldDepth.addEventListener('input', e => _setDepth(parseInt(e.target.value, 10)));
+_btnMinus.addEventListener('click', () => _setDepth(parseInt(_sldDepth.value, 10) - 1));
+_btnPlus .addEventListener('click', () => _setDepth(parseInt(_sldDepth.value, 10) + 1));
+
+document.getElementById('btn-example').addEventListener('click', () => {
+  const log = xesParser.parse(RUNNING_EXAMPLE_XES);
+  onLogLoaded(log, 'running_example.xes');
+});
+
+document.getElementById('btn-browse').addEventListener('click', () =>
+  document.getElementById('file-input').click()
+);
+
+document.getElementById('file-input').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  document.getElementById('status').textContent = 'Parsing…';
+  try {
+    const log = await xesParser.parseFile(file);
+    onLogLoaded(log, file.name);
+  } catch (err) {
+    document.getElementById('status').textContent = `Parse error: ${err.message}`;
+  }
+  e.target.value = '';
+});
+
+// ── Boot: load example immediately ───────────────────────────────────────────
+syncSize();
+renderer.render();
+const _bootLog = xesParser.parse(RUNNING_EXAMPLE_XES);
+onLogLoaded(_bootLog, 'running_example.xes');
+
+</script>
+</body>
+</html>
