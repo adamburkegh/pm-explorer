@@ -207,7 +207,7 @@ class PetriNetRenderer {
       if (t.silent) {
         this.ctx.fillStyle = this.theme.silentTransitionColor;
       } else {
-        this.ctx.fillStyle = t.isEnabled ? this.theme.enabledTransitionColor : this.theme.transitionColor;
+        this.ctx.fillStyle = (this.showTokens && t.isEnabled) ? this.theme.enabledTransitionColor : this.theme.transitionColor;
       }
       this.ctx.fill();
       this.ctx.strokeStyle = this.theme.transitionStroke;
