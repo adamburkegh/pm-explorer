@@ -14,6 +14,13 @@
  */
 
 const PT_SYMBOLS = {
+  // lowercase — matches the JS inductive miner's operator names
+  sequence: '→',
+  xor:      '×',
+  parallel: '∧',
+  loop:     '↺',
+  or:       '∨',
+  // uppercase — matches pm4py's serialised operator names (server path)
   SEQUENCE: '→',
   XOR:      '×',
   PARALLEL: '∧',
