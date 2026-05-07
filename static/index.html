@@ -66,6 +66,11 @@
       max-width: 280px; overflow: hidden; text-overflow: ellipsis;
     }
 
+    #app-version {
+      font-size: 11px; color: #555; white-space: nowrap;
+      padding-left: 10px; border-left: 1px solid #444;
+    }
+
     #backend-status {
       font-size: 11px; white-space: nowrap;
       padding-left: 10px; border-left: 1px solid #444;
@@ -224,6 +229,7 @@
     <div id="drop-zone">or drop XES here</div>
   </div>
   <span id="log-badge"></span>
+  <span id="app-version"></span>
   <span id="backend-status" class="disconnected" title="Backend not reachable">backend</span>
 </div>
 
@@ -1362,6 +1368,7 @@ async function checkBackendStatus() {
       _backendConnected = true;
       el.className = 'connected';
       el.title = `Backend connected · pm4py ${data.pm4py}`;
+      if (data.version) document.getElementById('app-version').textContent = `v${data.version}`;
     } else {
       _backendConnected = false;
       el.className = 'disconnected';
