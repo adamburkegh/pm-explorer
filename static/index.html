@@ -242,6 +242,7 @@
       <button id="btn-editor-load" disabled title="Populate editor from the currently loaded log">&#8595; Load log</button>
       <span class="info" style="margin-left:2px">Ctrl+Enter to apply</span>
       <span class="spacer"></span>
+      <button id="btn-editor-export-xes" disabled title="Download the current log as an XES file">&#8595; Export XES</button>
       <span id="editor-status" class="info"></span>
     </div>
     <div id="editor-split">
@@ -434,7 +435,8 @@ function onLogLoaded(log, name) {
   _imBpmnSimplicity = null;
   _imBpmnXml = null;
   document.getElementById('btn-im-export-bpmn').disabled = true;
-  document.getElementById('btn-editor-load').disabled = false;  // enable "Load log" button
+  document.getElementById('btn-editor-load').disabled       = false;
+  document.getElementById('btn-editor-export-xes').disabled = false;
   setConfContent('<div class="conf-message">Load a log and discover a model to check conformance.</div>');
   updateConformanceReady();
 
@@ -587,6 +589,19 @@ document.getElementById('btn-editor-load').addEventListener('click', () => {
   document.getElementById('editor-textarea').value = eventLogToDtLog(_log);
   document.getElementById('editor-status').textContent = 'Loaded from current log — edit and Apply to update.';
   document.getElementById('editor-status').className  = 'info';
+});
+
+// "Export XES" button — download the current log as a .xes file
+document.getElementById('btn-editor-export-xes').addEventListener('click', () => {
+  if (!_log) return;
+  const xml  = eventLogToXml(_log);
+  const blob = new Blob([xml], { type: 'application/xml' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'log-export.xes';
+  a.click();
+  URL.revokeObjectURL(url);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
