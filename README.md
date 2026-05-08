@@ -8,7 +8,7 @@ It is implemented in HTML, Javascript, and Python.
 
 # Installation
 
-Download the ZIP file and unpack to a local directory.
+Download the [ZIP file](https://github.com/adamburkegh/pm-explorer/archive/refs/heads/main.zip) and unpack to a local directory.
 
 ## Basic installation
 
