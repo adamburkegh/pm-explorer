@@ -230,6 +230,11 @@ vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-alpha-miner.js
 vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-inductive-miner.js',    'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/conformance/test-footprint.js',        'utf8'));
 
+// ── Layout ────────────────────────────────────────────────────────────────────
+
+vm.runInThisContext(fs.readFileSync('./static/js/layout/graph.js',             'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-graph.js',      'utf8'));
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`);
 console.log(`${_passed + _failed} tests: ${_passed} passed, ${_failed} failed`);
