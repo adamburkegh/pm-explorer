@@ -46,7 +46,8 @@
 var sugiyamaLayout = function sugiyamaLayout(graph, opts = {}) {
 
   // ── Phase 1 & 2: cycle removal + rank assignment ──────────────────────────
-  removeCycles(graph);
+  // Capture reversed edge ids before insertDummyNodes removes them.
+  const reversedEdgeIds = removeCycles(graph);
   assignRanks(graph);
 
   // ── Phase 3: layer building, dummy nodes, crossing minimisation ───────────
@@ -124,5 +125,12 @@ var sugiyamaLayout = function sugiyamaLayout(graph, opts = {}) {
     if (bottom > maxY) maxY = bottom;
   }
 
-  return { layers: realLayers, bendPoints, width: maxX, height: maxY };
+  return {
+    layers:        realLayers,
+    bendPoints,
+    /** Set of original edge ids that were reversed by cycle removal. */
+    reversedEdges: new Set(reversedEdgeIds),
+    width:         maxX,
+    height:        maxY,
+  };
 };
