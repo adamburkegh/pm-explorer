@@ -1303,8 +1303,13 @@ async function runConformance() {
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       const actKey = (_log && _log.activityKey) || DEFAULT_NAME_KEY;
-      const fp = _log ? computeFootprintConformance(_log, getDFG(_log, { activityKey: actKey }).graph, actKey) : null;
-      renderDfgResults(data, fp);
+      let fp = null, simplicity = null;
+      if (_log) {
+        const { graph } = getDFG(_log, { activityKey: actKey });
+        fp = computeFootprintConformance(_log, graph, actKey);
+        simplicity = { nodes: getActivities(_log, actKey).size, edges: graph.size };
+      }
+      renderDfgResults(data, fp, simplicity);
     } catch (e) {
       setConfContent(`<div class="conf-message">Error: ${e.message}</div>`);
     }
@@ -1349,27 +1354,25 @@ async function runConformance() {
 
 // computeFootprintConformance loaded from js/conformance/footprint.js
 
-function renderDfgResults(data, fp) {
-  const pct  = v => `${Math.round(v * 100)}%`;
-  const n    = v => v.toLocaleString();
+function renderDfgResults(data, fp, simplicity) {
+  const pct = v => `${Math.round(v * 100)}%`;
   const section = label =>
     `<tr class="conf-section"><td colspan="3">${label}</td></tr>`;
   const row = (label, desc, value) =>
     `<tr><td>${label}</td><td>${desc}</td><td>${value}</td></tr>`;
 
   const rows = [
-    section('Fitness · DFG'),
-    row('Trace fitness',    'Token-based replay (DFG net)',           pct(data.logFitness)),
-    row('Fitting traces',   'Traces replaying without missing tokens', pct(data.percentageFittingTraces)),
-    section('Precision · DFG'),
-    row('Precision',        'Token-based replay (DFG net)',           pct(data.precision)),
-    ...(fp ? [
-      section('Footprint'),
-      row('Footprint fitness',   'DF-pairs in log covered by DFG',   pct(fp.fitness)),
-      row('Footprint precision', 'DFG pairs seen in log',            pct(fp.precision)),
-      row('Fitting traces',      'All pairs in model',               `${n(fp.fittingTraces)} / ${n(fp.totalTraces)}`),
-      row('Log footprint',       'Distinct DF-pairs in log',         n(fp.logFPSize)),
-      row('Model footprint',     'Distinct DF-pairs in DFG',         n(fp.modelFPSize)),
+    section('Fitness'),
+    row('Trace fitness',       'Token-based replay (DFG net)',           pct(data.logFitness)),
+    row('Fitting traces',      'Traces replaying without missing tokens', pct(data.percentageFittingTraces)),
+    ...(fp ? [row('Footprint fitness',   'DF-pairs in log covered by DFG', pct(fp.fitness))]   : []),
+    section('Precision'),
+    row('Precision',           'Token-based replay (DFG net)',           pct(data.precision)),
+    ...(fp ? [row('Footprint precision', 'DFG pairs seen in log',         pct(fp.precision))] : []),
+    ...(simplicity ? [
+      section('Simplicity · DFG'),
+      row('Activities', 'Distinct activities (nodes)', simplicity.nodes),
+      row('Edges',      'Directly-follows pairs',      simplicity.edges),
     ] : []),
   ].join('');
 
