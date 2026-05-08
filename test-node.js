@@ -132,6 +132,7 @@ vm.runInThisContext(fs.readFileSync('./static/js/eventlog/log-util.js',     'utf
 vm.runInThisContext(fs.readFileSync('./static/js/pnv/model.js',             'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/js/discovery/alpha-miner.js', 'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/js/discovery/inductive-miner.js', 'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/conformance/footprint.js',     'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/fixtures/running-example-xes.js', 'utf8'));
 
 // xesParser stub: build the running-example log from known traces without DOMParser
@@ -179,18 +180,28 @@ global.it = (name, fn) => {
 };
 
 global.assert = {
-  ok:        (v, m)    => { if (!v) throw new Error(m ?? 'expected truthy'); },
-  equal:     (a, b, m) => { if (a !== b) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); },
-  deepEqual: (a, b, m) => {
+  ok:        (v, m)       => { if (!v) throw new Error(m ?? 'expected truthy'); },
+  equal:     (a, b, m)    => { if (a !== b) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); },
+  notEqual:  (a, b, m)    => { if (a === b) throw new Error(m ?? `expected not ${JSON.stringify(b)}`); },
+  deepEqual: (a, b, m)    => {
     const sa = JSON.stringify(a), sb = JSON.stringify(b);
     if (sa !== sb) throw new Error(m ?? `expected ${sb}, got ${sa}`);
   },
+  closeTo:   (a, b, d=1e-9, m) => {
+    if (Math.abs(a - b) > d) throw new Error(m ?? `expected ${a} ≈ ${b} (±${d})`);
+  },
+  includes:  (h, n, m)    => {
+    const has = h instanceof Set || h instanceof Map ? h.has(n) : Array.from(h).includes(n);
+    if (!has) throw new Error(m ?? `expected collection to include ${JSON.stringify(n)}`);
+  },
+  instanceOf:(a, C, m)    => { if (!(a instanceof C)) throw new Error(m ?? `expected instance of ${C.name}`); },
 };
 
 // ── Run the browser test files in this context ───────────────────────────────
 
-vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-alpha-miner.js',    'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-inductive-miner.js','utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-alpha-miner.js',        'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-inductive-miner.js',    'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/conformance/test-footprint.js',        'utf8'));
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`);
