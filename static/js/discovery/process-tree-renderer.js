@@ -14,11 +14,11 @@
  */
 
 const PT_SYMBOLS = {
-  SEQUENCE: '→',
-  XOR:      '×',
-  PARALLEL: '∧',
-  LOOP:     '↺',
-  OR:       '∨',
+  sequence: '→',
+  xor:      '×',
+  parallel: '∧',
+  loop:     '↺',
+  or:       '∨',
 };
 
 // Layout constants
