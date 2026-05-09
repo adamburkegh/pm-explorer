@@ -118,7 +118,8 @@ var applyPetriNetLayout = function applyPetriNetLayout(net, opts = {}) {
 
   for (const [id, arc] of net.arcs) {
     if (reversedEdges.has(id)) {
-      // Route back-arc as a U-shape below the diagram
+      // Route back-arc as a U-shape below the diagram so it doesn't
+      // overlap the forward flow.
       const src = net.places.get(arc.source) ?? net.transitions.get(arc.source);
       const tgt = net.places.get(arc.target) ?? net.transitions.get(arc.target);
       if (src && tgt) {
@@ -127,10 +128,13 @@ var applyPetriNetLayout = function applyPetriNetLayout(net, opts = {}) {
           { x: tgt.position.x, y: backArcY },
         ];
       } else {
-        arc.points = bendPoints.get(id) ?? [];
+        arc.points = [];
       }
     } else {
-      arc.points = bendPoints.get(id) ?? [];
+      // Forward arcs: draw straight lines.  Dummy-node bend points from
+      // crossing minimisation serve their purpose in positioning real nodes
+      // but routing arcs through scattered dummy positions creates zigzags.
+      arc.points = [];
     }
   }
 
