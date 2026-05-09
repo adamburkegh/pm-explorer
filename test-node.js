@@ -96,9 +96,32 @@ global.DOMParser = class {
       }
       getAttribute(k) { return this._attrs[k] ?? null; }
       querySelector(sel) {
-        if (sel === 'parsererror') return null; // XES has no parse errors
+        for (const child of this._children) {
+          if (child.tagName === sel) return child;
+          const found = child.querySelector(sel);
+          if (found) return found;
+        }
         return null;
       }
+    }
+
+    // Well-formedness check before building the tree
+    const openStack = [];
+    for (const tok of tokens) {
+      if (tok.t === 'open' && !tok.selfClose) openStack.push(tok.name);
+      else if (tok.t === 'close') {
+        if (openStack.length === 0 || openStack[openStack.length - 1] !== tok.name) {
+          const errEl = new El('parsererror', {});
+          errEl._text = `Unexpected closing tag </${tok.name}>`;
+          return { documentElement: errEl, querySelector: (s) => s === 'parsererror' ? errEl : null };
+        }
+        openStack.pop();
+      }
+    }
+    if (openStack.length > 0) {
+      const errEl = new El('parsererror', {});
+      errEl._text = `Unclosed tag(s): ${openStack.join(', ')}`;
+      return { documentElement: errEl, querySelector: (s) => s === 'parsererror' ? errEl : null };
     }
 
     const root = { _children: [] };
@@ -117,7 +140,7 @@ global.DOMParser = class {
     }
 
     const docEl = root._children[0];
-    return { documentElement: docEl, querySelector: () => null };
+    return { documentElement: docEl, querySelector: (s) => docEl ? docEl.querySelector(s) : null };
   }
 };
 
@@ -132,6 +155,7 @@ vm.runInThisContext(fs.readFileSync('./static/js/eventlog/log-util.js',     'utf
 vm.runInThisContext(fs.readFileSync('./static/js/pnv/model.js',             'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/js/discovery/alpha-miner.js', 'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/js/discovery/inductive-miner.js', 'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/conformance/footprint.js',     'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/fixtures/running-example-xes.js', 'utf8'));
 
 // xesParser stub: build the running-example log from known traces without DOMParser
@@ -179,18 +203,32 @@ global.it = (name, fn) => {
 };
 
 global.assert = {
-  ok:        (v, m)    => { if (!v) throw new Error(m ?? 'expected truthy'); },
-  equal:     (a, b, m) => { if (a !== b) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); },
-  deepEqual: (a, b, m) => {
+  ok:        (v, m)       => { if (!v) throw new Error(m ?? 'expected truthy'); },
+  equal:     (a, b, m)    => { if (a !== b) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); },
+  notEqual:  (a, b, m)    => { if (a === b) throw new Error(m ?? `expected not ${JSON.stringify(b)}`); },
+  deepEqual: (a, b, m)    => {
     const sa = JSON.stringify(a), sb = JSON.stringify(b);
     if (sa !== sb) throw new Error(m ?? `expected ${sb}, got ${sa}`);
   },
+  closeTo:   (a, b, d=1e-9, m) => {
+    if (Math.abs(a - b) > d) throw new Error(m ?? `expected ${a} ≈ ${b} (±${d})`);
+  },
+  includes:  (h, n, m)    => {
+    const has = h instanceof Set || h instanceof Map ? h.has(n) : Array.from(h).includes(n);
+    if (!has) throw new Error(m ?? `expected collection to include ${JSON.stringify(n)}`);
+  },
+  instanceOf:(a, C, m)    => { if (!(a instanceof C)) throw new Error(m ?? `expected instance of ${C.name}`); },
+  throws:    (fn, m)      => { try { fn(); throw new Error('expected throw'); } catch (e) { if (e.message === 'expected throw') throw new Error(m ?? 'expected function to throw'); } },
 };
 
 // ── Run the browser test files in this context ───────────────────────────────
 
-vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-alpha-miner.js',    'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-inductive-miner.js','utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-event-log.js',           'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-xes-parser.js',          'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-log-util.js',            'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-alpha-miner.js',        'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-inductive-miner.js',    'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/conformance/test-footprint.js',        'utf8'));
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`);

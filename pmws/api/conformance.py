@@ -41,3 +41,31 @@ def precision():
 
     result = pm4py.precision_token_based_replay(log, net, im, fm)
     return jsonify({"precision": result})
+
+
+@conformance_bp.post("/api/conformance/dfg")
+def dfg_conformance():
+    """Token-replay conformance against a Petri net derived from the log's DFG.
+
+    Discovers the DFG from the log, converts it to a Petri net via pm4py's DFG
+    converter, then runs token-based replay for both fitness and precision.
+    Returns both metrics in a single response — no separate Petri net needed.
+    """
+    if "xes_file" not in request.files:
+        return jsonify({"error": "xes_file required"}), 400
+
+    try:
+        log = load_xes(request.files["xes_file"])
+        dfg_map, start_activities, end_activities = pm4py.discover_dfg(log)
+        net, im, fm = pm4py.convert_to_petri_net(dfg_map, start_activities, end_activities)
+
+        fitness_result   = pm4py.fitness_token_based_replay(log, net, im, fm)
+        precision_result = pm4py.precision_token_based_replay(log, net, im, fm)
+
+        return jsonify({
+            "logFitness":              fitness_result["log_fitness"],
+            "percentageFittingTraces": fitness_result["percentage_of_fitting_traces"] / 100.0,
+            "precision":               precision_result,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

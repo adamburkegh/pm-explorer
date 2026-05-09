@@ -321,6 +321,7 @@
       <div class="ex-tabs" id="conf-source-tabs">
         <button data-src="alpha">Alpha Miner</button>
         <button data-src="im" class="active">Inductive Miner</button>
+        <button data-src="dfg">DFG</button>
       </div>
       <button id="btn-run-conformance">Run</button>
       <span class="spacer"></span>
@@ -347,6 +348,7 @@
 <script src="js/discovery/alpha-miner.js"></script>
 <script src="js/discovery/inductive-miner.js"></script>
 <script src="js/discovery/process-tree-renderer.js"></script>
+<script src="js/conformance/footprint.js"></script>
 <script src="js/lib/bpmn-js/bpmn-modeler.production.min.js"></script>
 <!-- Bundled example log (avoids fetch dependency under file://) -->
 <script src="test/fixtures/running-example-xes.js"></script>
@@ -377,7 +379,7 @@ let _imView           = 'petri'; // 'petri' | 'bpmn'
 let _imBpmnViewer     = null; // bpmn-js Modeler instance (palette/context-pad hidden via CSS)
 
 let _backendConnected = false;
-let _confSource       = 'im';  // 'alpha' | 'im'
+let _confSource       = 'im';  // 'alpha' | 'im' | 'dfg'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Tab system
@@ -1266,6 +1268,7 @@ document.querySelectorAll('#conf-source-tabs button').forEach(btn => {
     document.querySelectorAll('#conf-source-tabs button').forEach(b =>
       b.classList.toggle('active', b.dataset.src === _confSource)
     );
+    updateConformanceReady();
   });
 });
 
@@ -1273,9 +1276,16 @@ function updateConformanceReady() {
   const status = document.getElementById('conf-toolbar-status');
   const btn    = document.getElementById('btn-run-conformance');
   let reason = '';
-  if (!_backendConnected)                                               reason = 'Backend not connected';
-  else if (!_logFile)                                                   reason = 'Load a log first';
-  else if (_confSource === 'alpha' ? _alphaEpoch === -1 : _imEpoch === -1) reason = 'Run the selected miner first';
+  if (_confSource === 'dfg') {
+    // DFG → Petri net token replay — needs backend + log file
+    if (!_backendConnected)  reason = 'Backend not connected';
+    else if (!_logFile)      reason = 'Load a log first';
+  } else {
+    // Alpha / IM token replay — needs backend + log + discovered net
+    if (!_backendConnected)                                                   reason = 'Backend not connected';
+    else if (!_logFile)                                                       reason = 'Load a log first';
+    else if (_confSource === 'alpha' ? _alphaEpoch === -1 : _imEpoch === -1) reason = 'Run the selected miner first';
+  }
   status.textContent = reason;
   btn.disabled = !!reason;
 }
@@ -1286,6 +1296,33 @@ function setConfContent(html) {
 
 async function runConformance() {
   updateConformanceReady();
+
+  // ── DFG → Petri net token replay + footprint (backend + client) ──────────
+  if (_confSource === 'dfg') {
+    if (!_backendConnected || !_logFile) return;
+    setConfContent('<div class="conf-message">Running…</div>');
+    try {
+      const fd = new FormData();
+      fd.append('xes_file', _logFile, 'log.xes');
+      const resp = await fetch('/api/conformance/dfg', { method: 'POST', body: fd });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      const actKey = (_log && _log.activityKey) || DEFAULT_NAME_KEY;
+      let fp = null, simplicity = null;
+      if (_log) {
+        const { graph } = getDFG(_log, { activityKey: actKey });
+        fp = computeFootprintConformance(_log, graph, actKey);
+        simplicity = { nodes: getActivities(_log, actKey).size, edges: graph.size };
+      }
+      renderDfgResults(data, fp, simplicity);
+    } catch (e) {
+      setConfContent(`<div class="conf-message">Error: ${e.message}</div>`);
+    }
+    return;
+  }
+
+  // ── Alpha / IM token replay (backend, requires prior mining) ──────────────
   if (!_backendConnected) return;
   if (!_logFile)          return;
   const netReady = _confSource === 'alpha' ? _alphaEpoch !== -1 : _imEpoch !== -1;
@@ -1321,6 +1358,33 @@ async function runConformance() {
   }
 }
 
+// computeFootprintConformance loaded from js/conformance/footprint.js
+
+function renderDfgResults(data, fp, simplicity) {
+  const pct = v => `${Math.round(v * 100)}%`;
+  const section = label =>
+    `<tr class="conf-section"><td colspan="3">${label}</td></tr>`;
+  const row = (label, desc, value) =>
+    `<tr><td>${label}</td><td>${desc}</td><td>${value}</td></tr>`;
+
+  const rows = [
+    section('Fitness'),
+    row('Trace fitness',       'Token-based replay (DFG net)',           pct(data.logFitness)),
+    row('Fitting traces',      'Traces replaying without missing tokens', pct(data.percentageFittingTraces)),
+    ...(fp ? [row('Footprint fitness',   'DF-pairs in log covered by DFG', pct(fp.fitness))]   : []),
+    section('Precision'),
+    row('Precision',           'Token-based replay (DFG net)',           pct(data.precision)),
+    ...(fp ? [row('Footprint precision', 'DFG pairs seen in log',         pct(fp.precision))] : []),
+    ...(simplicity ? [
+      section('Simplicity · DFG'),
+      row('Activities', 'Distinct activities (nodes)', simplicity.nodes),
+      row('Edges',      'Directly-follows pairs',      simplicity.edges),
+    ] : []),
+  ].join('');
+
+  setConfContent(`<table class="conf-table"><thead><tr><th>Metric</th><th>Method</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>`);
+}
+
 function renderConfResults(data, pnSimplicity, bpmnSimplicity) {
   const pct = v => `${Math.round(v * 100)}%`;
   const section = label =>
@@ -1337,13 +1401,15 @@ function renderConfResults(data, pnSimplicity, bpmnSimplicity) {
     row('Fitting traces',   'Traces replaying without missing tokens', pct(data.percentageFittingTraces)),
     section('Precision'),
     row('Precision',        'Token-based replay',                     pct(data.precision)),
-    section('Simplicity · Petri net'),
-    row('Nodes',            'Places + transitions',                   pnSimplicity.nodes),
-    row('Constructs',       'Nodes + arcs',                           pnSimplicity.constructs),
+    ...(pnSimplicity !== undefined ? [
+      section('Simplicity · Petri net'),
+      row('Nodes',      'Places + transitions', pnSimplicity.nodes),
+      row('Constructs', 'Nodes + arcs',         pnSimplicity.constructs),
+    ] : []),
     ...(bpmnSimplicity !== undefined ? [
       section('Simplicity · BPMN'),
-      row('Nodes',      'Tasks + gateways + events',        bpmnPending ? na : bpmnSimplicity.nodes,      bpmnPending),
-      row('Constructs', 'Nodes + sequence flows',           bpmnPending ? na : bpmnSimplicity.constructs, bpmnPending),
+      row('Nodes',      'Tasks + gateways + events', bpmnPending ? na : bpmnSimplicity.nodes,      bpmnPending),
+      row('Constructs', 'Nodes + sequence flows',   bpmnPending ? na : bpmnSimplicity.constructs, bpmnPending),
     ] : []),
   ].join('');
 
