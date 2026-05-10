@@ -155,5 +155,26 @@ var assignRanks = function assignRanks(graph) {
     }
   }
 
+  // Normalize sinks to maxRank so they appear rightmost.
+  // Sinks have no successors, so increasing their rank cannot violate the
+  // edge ordering constraint rank(u) < rank(v) for any edge u→v.
+  // Without this, cycle removal can create longer artificial paths through
+  // reversed loop arcs, leaving the true end node at a lower rank.
+  //
+  // Guard: only promote *true* sinks, not artificial sinks created by cycle
+  // removal.  When a back-edge B→A is reversed to A→B, node B loses its only
+  // outgoing edge and becomes a sink in the DAG — but it sits in the middle of
+  // the original cycle and must not jump to maxRank.  Artificial sinks can be
+  // identified by the presence of a reversed incoming edge (the old back-arc
+  // now pointing inward).  True sinks have no reversed incident edges at all.
+  for (const id of graph.nodeIds) {
+    if (graph.outEdges(id).length === 0) {
+      const hasReversedIncoming = graph.inEdges(id).some(eid => graph.edge(eid).reversed);
+      if (!hasReversedIncoming) {
+        graph.node(id)._rank = maxRank;
+      }
+    }
+  }
+
   return maxRank;
 };

@@ -116,20 +116,56 @@ var applyPetriNetLayout = function applyPetriNetLayout(net, opts = {}) {
   }
   const backArcY = maxBottom + (opts.marginY ?? 40);
 
+  // ── Back-arc routing with interval scheduling ────────────────────────────
+  // Collect all back-arcs with their x-extents, then pack them onto
+  // horizontal rails (interval scheduling) so non-overlapping arcs share
+  // a rail and overlapping arcs are stacked on separate rails below.
+  const backArcSpacing = 25;
+
+  const backArcEntries = [];
   for (const [id, arc] of net.arcs) {
-    if (reversedEdges.has(id)) {
-      // Route back-arc as a U-shape below the diagram
-      const src = net.places.get(arc.source) ?? net.transitions.get(arc.source);
-      const tgt = net.places.get(arc.target) ?? net.transitions.get(arc.target);
-      if (src && tgt) {
-        arc.points = [
-          { x: src.position.x, y: backArcY },
-          { x: tgt.position.x, y: backArcY },
-        ];
-      } else {
-        arc.points = bendPoints.get(id) ?? [];
+    if (!reversedEdges.has(id)) continue;
+    const src = net.places.get(arc.source) ?? net.transitions.get(arc.source);
+    const tgt = net.places.get(arc.target) ?? net.transitions.get(arc.target);
+    if (src && tgt) {
+      backArcEntries.push({ id, arc, src, tgt,
+        minX: Math.min(src.position.x, tgt.position.x),
+        maxX: Math.max(src.position.x, tgt.position.x) });
+    }
+  }
+
+  // Sort by left edge so we can greedily assign rails left-to-right.
+  backArcEntries.sort((a, b) => a.minX - b.minX);
+
+  // rails[r] = rightmost maxX placed on rail r so far.
+  const rails = [];
+  for (const entry of backArcEntries) {
+    let assigned = false;
+    for (let r = 0; r < rails.length; r++) {
+      if (rails[r] < entry.minX) {
+        rails[r] = entry.maxX;
+        entry.rail = r;
+        assigned = true;
+        break;
       }
-    } else {
+    }
+    if (!assigned) {
+      entry.rail = rails.length;
+      rails.push(entry.maxX);
+    }
+  }
+
+  for (const { arc, src, tgt, rail } of backArcEntries) {
+    const y = backArcY + rail * backArcSpacing;
+    arc.points = [
+      { x: src.position.x, y },
+      { x: tgt.position.x, y },
+    ];
+  }
+
+  // Forward arcs use dummy-node bend points from crossing minimisation.
+  for (const [id, arc] of net.arcs) {
+    if (!reversedEdges.has(id)) {
       arc.points = bendPoints.get(id) ?? [];
     }
   }
