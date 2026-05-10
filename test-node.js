@@ -95,6 +95,7 @@ global.DOMParser = class {
         return this._text + this._children.map(c => c.textContent).join('');
       }
       getAttribute(k) { return this._attrs[k] ?? null; }
+      // Depth-first search for the first descendant matching a tag name selector
       querySelector(sel) {
         for (const child of this._children) {
           if (child.tagName === sel) return child;
@@ -229,6 +230,19 @@ vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-log-util.js',  
 vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-alpha-miner.js',        'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-inductive-miner.js',    'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/conformance/test-footprint.js',        'utf8'));
+
+// ── Layout ────────────────────────────────────────────────────────────────────
+
+vm.runInThisContext(fs.readFileSync('./static/js/layout/graph.js',             'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/layout/ranking.js',           'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/layout/crossing.js',          'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/layout/coordinates.js',       'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/layout/sugiyama.js',          'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-graph.js',      'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-ranking.js',    'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-crossing.js',   'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-coordinates.js','utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-sugiyama.js',   'utf8'));
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`);
