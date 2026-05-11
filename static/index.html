@@ -757,16 +757,6 @@ const alphaViewer = new PetriNetViewer(document.getElementById('alpha-canvas'), 
   onFire: (_id, _t, net) => { net.updateEnabledTransitions(); alphaViewer.render(); },
 });
 
-/**
- * Lay out a Petri net using the Sugiyama hierarchical algorithm.
- * Delegates to applyPetriNetLayout (js/layout/pn-layout.js).
- * The sourceId parameter is retained for call-site compatibility but
- * is no longer needed — the pipeline discovers sources automatically.
- */
-function layoutNet(net, _sourceId) {
-  applyPetriNetLayout(net);
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // DFG panel
 // ═══════════════════════════════════════════════════════════════════════════
@@ -798,7 +788,7 @@ function runAlpha() {
   const result = applyAlphaMiner(_log);
   _alphaEpoch  = _logEpoch;
 
-  layoutNet(result.net, result.source.id);
+  applyPetriNetLayout(result.net);
   result.net.updateEnabledTransitions();
 
   // Snapshot initial tokens for reset
@@ -863,7 +853,7 @@ function runInductive() {
   _imProcessTree = result.processTree;
   _imTreeEpoch = -1;   // invalidate tree view so it re-renders with new tree
 
-  layoutNet(result.net, result.source.id);
+  applyPetriNetLayout(result.net);
   result.net.updateEnabledTransitions();
 
   // Snapshot initial tokens for reset
