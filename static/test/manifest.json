@@ -1,5 +1,6 @@
 {
   "sources": [
+    "js/xml.js",
     "js/eventlog/constants.js",
     "js/eventlog/event-log.js",
     "js/eventlog/xes-parser.js",
@@ -18,6 +19,7 @@
     "js/layout/dfg-layout.js"
   ],
   "tests": [
+    "test/test-xml.js",
     "test/fixtures/running-example-xes.js",
     "test/eventlog/test-event-log.js",
     "test/eventlog/test-xes-parser.js",

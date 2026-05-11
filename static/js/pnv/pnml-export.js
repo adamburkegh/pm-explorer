@@ -7,20 +7,14 @@
  * @returns {string} PNML XML
  */
 function toPNML(net, initialTokens, name = 'model') {
-  const esc = s => String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-
   const graphics = pos =>
     pos ? `<graphics><position x="${Math.round(pos.x)}" y="${Math.round(pos.y)}"/></graphics>` : '';
 
   const places = Array.from(net.places.values()).map(p => {
     const init = initialTokens?.get(p.id) ?? p.tokens;
     return [
-      `      <place id="${esc(p.id)}">`,
-      `        <name><text>${esc(p.label ?? p.id)}</text></name>`,
+      `      <place id="${xmlEscape(p.id)}">`,
+      `        <name><text>${xmlEscape(p.label ?? p.id)}</text></name>`,
       init > 0 ? `        <initialMarking><text>${init}</text></initialMarking>` : null,
       p.position ? `        ${graphics(p.position)}` : null,
       `      </place>`,
@@ -28,14 +22,14 @@ function toPNML(net, initialTokens, name = 'model') {
   });
 
   const transitions = Array.from(net.transitions.values()).map(t => [
-    `      <transition id="${esc(t.id)}">`,
-    `        <name><text>${esc(t.silent ? '' : (t.label ?? ''))}</text></name>`,
+    `      <transition id="${xmlEscape(t.id)}">`,
+    `        <name><text>${xmlEscape(t.silent ? '' : (t.label ?? ''))}</text></name>`,
     t.position ? `        ${graphics(t.position)}` : null,
     `      </transition>`,
   ].filter(l => l !== null).join('\n'));
 
   const arcs = Array.from(net.arcs.values()).map(a => [
-    `      <arc id="${esc(a.id)}" source="${esc(a.source)}" target="${esc(a.target)}">`,
+    `      <arc id="${xmlEscape(a.id)}" source="${xmlEscape(a.source)}" target="${xmlEscape(a.target)}">`,
     `        <inscription><text>${a.weight ?? 1}</text></inscription>`,
     `      </arc>`,
   ].join('\n'));
@@ -45,7 +39,7 @@ function toPNML(net, initialTokens, name = 'model') {
   const finalMarkings = finalPlaces.length > 0 ? [
     `  <finalmarkings>`,
     `    <marking>`,
-    ...finalPlaces.map(p => `      <place idref="${esc(p.id)}"><text>${p.finalMarking}</text></place>`),
+    ...finalPlaces.map(p => `      <place idref="${xmlEscape(p.id)}"><text>${p.finalMarking}</text></place>`),
     `    </marking>`,
     `  </finalmarkings>`,
   ].join('\n') : '';
@@ -54,7 +48,7 @@ function toPNML(net, initialTokens, name = 'model') {
     `<?xml version="1.0" encoding="UTF-8"?>`,
     `<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">`,
     `  <net id="net" type="http://www.pnml.org/version-2009/grammar/ptnet">`,
-    `    <name><text>${esc(name)}</text></name>`,
+    `    <name><text>${xmlEscape(name)}</text></name>`,
     `    <page id="page">`,
     ...places,
     ...transitions,

@@ -119,12 +119,6 @@ function eventLogToXml(log) {
   const tsKey  = log.timestampKey;
   const idKey  = log.caseIdKey;
 
-  const x = s => String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-
   const isoDate = v => {
     if (v instanceof Date) return v.toISOString();
     if (typeof v === 'string') return v;
@@ -152,18 +146,18 @@ function eventLogToXml(log) {
   for (const trace of log) {
     const caseId = trace.attributes[idKey] ?? trace.attributes['concept:name'] ?? '';
     lines.push('  <trace>');
-    lines.push(`    <string key="concept:name" value="${x(caseId)}"/>`);
+    lines.push(`    <string key="concept:name" value="${xmlEscape(caseId)}"/>`);
 
     for (const event of trace) {
       lines.push('    <event>');
       const act = event.get(actKey);
       if (act !== undefined)
-        lines.push(`      <string key="concept:name" value="${x(act)}"/>`);
+        lines.push(`      <string key="concept:name" value="${xmlEscape(act)}"/>`);
       const ts = event.get(tsKey);
       if (ts !== undefined)
-        lines.push(`      <date key="time:timestamp" value="${x(isoDate(ts))}"/>`);
+        lines.push(`      <date key="time:timestamp" value="${xmlEscape(isoDate(ts))}"/>`);
       const lc = event.get(DEFAULT_TRANSITION_KEY);
-      lines.push(`      <string key="lifecycle:transition" value="${x(lc ?? LIFECYCLE_COMPLETE)}"/>`);
+      lines.push(`      <string key="lifecycle:transition" value="${xmlEscape(lc ?? LIFECYCLE_COMPLETE)}"/>`);
       lines.push('    </event>');
     }
 

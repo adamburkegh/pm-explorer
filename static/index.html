@@ -335,6 +335,7 @@
 </div><!-- #content -->
 
 <!-- ── JS dependencies ─────────────────────────────────────────────────────── -->
+<script src="js/xml.js"></script>
 <script src="js/eventlog/constants.js"></script>
 <script src="js/eventlog/event-log.js"></script>
 <script src="js/eventlog/xes-parser.js"></script>
@@ -583,15 +584,11 @@ function _renderEditorPreview(log) {
         <div class="ep-bar-bg"><div class="ep-bar-fill" style="width:${pct}%"></div></div>
         <span class="ep-count">×${count}</span>
       </div>
-      <div class="ep-acts">${_esc(label)}</div>
+      <div class="ep-acts">${xmlEscape(label)}</div>
     </div>`;
   }
 
   preview.innerHTML = html;
-}
-
-function _esc(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // Apply button
