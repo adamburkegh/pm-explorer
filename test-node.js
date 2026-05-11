@@ -182,23 +182,38 @@ global.it = (name, fn) => {
   }
 };
 
+// Mirrors the normalise() helper in static/test/runner.js so that assert.deepEqual
+// handles Maps, Sets, and plain objects consistently across both runners.
+function normalise(v) {
+  if (v instanceof Map)  return Object.fromEntries([...v.entries()].map(([k, vv]) => [k, normalise(vv)]));
+  if (v instanceof Set)  return [...v].sort();
+  if (Array.isArray(v))  return v.map(normalise);
+  if (v && typeof v === 'object' && !(v instanceof Date))
+    return Object.fromEntries(Object.entries(v).sort().map(([k, vv]) => [k, normalise(vv)]));
+  return v;
+}
+
 global.assert = {
-  ok:        (v, m)       => { if (!v) throw new Error(m ?? 'expected truthy'); },
-  equal:     (a, b, m)    => { if (a !== b) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); },
-  notEqual:  (a, b, m)    => { if (a === b) throw new Error(m ?? `expected not ${JSON.stringify(b)}`); },
-  deepEqual: (a, b, m)    => {
-    const sa = JSON.stringify(a), sb = JSON.stringify(b);
-    if (sa !== sb) throw new Error(m ?? `expected ${sb}, got ${sa}`);
+  ok:          (v, m)          => { if (!v) throw new Error(m ?? 'expected truthy'); },
+  equal:       (a, b, m)       => { if (a !== b) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); },
+  notEqual:    (a, b, m)       => { if (a === b) throw new Error(m ?? `expected not ${JSON.stringify(b)}`); },
+  deepEqual:   (a, b, m)       => {
+    const sa = JSON.stringify(normalise(a)), sb = JSON.stringify(normalise(b));
+    if (sa !== sb) throw new Error(m ?? `Deep equal failed:\n  expected: ${sb}\n  actual:   ${sa}`);
   },
-  closeTo:   (a, b, d=1e-9, m) => {
+  closeTo:     (a, b, d=1e-9, m) => {
     if (Math.abs(a - b) > d) throw new Error(m ?? `expected ${a} ≈ ${b} (±${d})`);
   },
-  includes:  (h, n, m)    => {
+  includes:    (h, n, m)       => {
     const has = h instanceof Set || h instanceof Map ? h.has(n) : Array.from(h).includes(n);
     if (!has) throw new Error(m ?? `expected collection to include ${JSON.stringify(n)}`);
   },
-  instanceOf:(a, C, m)    => { if (!(a instanceof C)) throw new Error(m ?? `expected instance of ${C.name}`); },
-  throws:    (fn, m)      => { try { fn(); throw new Error('expected throw'); } catch (e) { if (e.message === 'expected throw') throw new Error(m ?? 'expected function to throw'); } },
+  instanceOf:  (a, C, m)       => { if (!(a instanceof C)) throw new Error(m ?? `expected instance of ${C.name}`); },
+  throws:      (fn, m)         => { try { fn(); throw new Error('expected throw'); } catch (e) { if (e.message === 'expected throw') throw new Error(m ?? 'expected function to throw'); } },
+  async rejects(p, m)          { try { await p; throw new Error('expected rejection'); } catch (e) { if (e.message === 'expected rejection') throw new Error(m ?? 'expected promise to reject'); } },
+  isNull:      (a, m)          => { if (a !== null)      throw new Error(m ?? `expected null, got ${JSON.stringify(a)}`); },
+  isUndefined: (a, m)          => { if (a !== undefined) throw new Error(m ?? `expected undefined, got ${JSON.stringify(a)}`); },
+  isNaN:       (a, m)          => { if (!Number.isNaN(a)) throw new Error(m ?? `expected NaN, got ${JSON.stringify(a)}`); },
 };
 
 // Phase 2: fixtures and test suites
