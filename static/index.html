@@ -66,6 +66,11 @@
       max-width: 280px; overflow: hidden; text-overflow: ellipsis;
     }
 
+    #app-version {
+      font-size: 11px; color: #555; white-space: nowrap;
+      padding-left: 10px; border-left: 1px solid #444;
+    }
+
     #backend-status {
       font-size: 11px; white-space: nowrap;
       padding-left: 10px; border-left: 1px solid #444;
@@ -224,6 +229,7 @@
     <div id="drop-zone">or drop XES here</div>
   </div>
   <span id="log-badge"></span>
+  <span id="app-version"></span>
   <span id="backend-status" class="disconnected" title="Backend not reachable">backend</span>
 </div>
 
@@ -338,6 +344,12 @@
 <script src="js/pnv/renderer.js"></script>
 <script src="js/pnv/viewer.js"></script>
 <script src="js/pnv/pnml-export.js"></script>
+<script src="js/layout/graph.js"></script>
+<script src="js/layout/ranking.js"></script>
+<script src="js/layout/crossing.js"></script>
+<script src="js/layout/coordinates.js"></script>
+<script src="js/layout/sugiyama.js"></script>
+<script src="js/layout/pn-layout.js"></script>
 <script src="js/discovery/dfg-renderer.js"></script>
 <script src="js/discovery/alpha-miner.js"></script>
 <script src="js/discovery/inductive-miner.js"></script>
@@ -745,134 +757,13 @@ const alphaViewer = new PetriNetViewer(document.getElementById('alpha-canvas'), 
 });
 
 /**
- * Layered graph layout with barycenter crossing minimisation and dummy nodes.
- *
- * Phase 1 — BFS rank assignment from sourceId.
- * Phase 2 — Insert dummy nodes at intermediate ranks for arcs that span >1 rank,
- *            so the barycenter heuristic can influence ordering at every rank and
- *            long arcs are routed as polylines rather than crossing diagonals.
- * Phase 3 — Barycenter crossing minimisation: alternating forward/backward sweeps
- *            sort each column by the average position of its neighbours in the
- *            adjacent column.
- * Phase 4 — Assign pixel coordinates; write dummy positions to arc.points so the
- *            renderer draws routed polylines instead of crossing diagonals.
+ * Lay out a Petri net using the Sugiyama hierarchical algorithm.
+ * Delegates to applyPetriNetLayout (js/layout/pn-layout.js).
+ * The sourceId parameter is retained for call-site compatibility but
+ * is no longer needed — the pipeline discovers sources automatically.
  */
-function layoutNet(net, sourceId) {
-  // ── Phase 1: BFS rank assignment ─────────────────────────────────────────
-  const rank = new Map();
-  const queue = [sourceId];
-  rank.set(sourceId, 0);
-  let head = 0;
-  while (head < queue.length) {
-    const nodeId = queue[head++];
-    const r = rank.get(nodeId);
-    for (const arc of net.arcs.values()) {
-      if (arc.source === nodeId && !rank.has(arc.target)) {
-        rank.set(arc.target, r + 1);
-        queue.push(arc.target);
-      }
-    }
-  }
-  const maxR = rank.size > 0 ? Math.max(...rank.values()) : 0;
-  for (const id of [...net.places.keys(), ...net.transitions.keys()]) {
-    if (!rank.has(id)) rank.set(id, maxR + 1);
-  }
-
-  // ── Phase 2: Dummy nodes for long-span forward arcs ──────────────────────
-  // For each arc that skips one or more ranks, insert invisible dummy nodes at
-  // each intermediate rank and record the full chain [src, d…, tgt].
-  // Back-arcs (rank[src] > rank[tgt]) are left untouched.
-  let dummySeq = 0;
-  const dummies   = new Map();   // dummyId → { position }
-  const arcChains = new Map();   // arcId   → [srcId, ...dummyIds, tgtId]
-
-  for (const arc of net.arcs.values()) {
-    const r0 = rank.get(arc.source) ?? 0;
-    const r1 = rank.get(arc.target) ?? 0;
-    if (r1 - r0 > 1) {
-      const chain = [arc.source];
-      for (let r = r0 + 1; r < r1; r++) {
-        const did = `__d${dummySeq++}`;
-        dummies.set(did, { position: { x: 0, y: 0 } });
-        rank.set(did, r);
-        chain.push(did);
-      }
-      chain.push(arc.target);
-      arcChains.set(arc.id, chain);
-    }
-  }
-
-  // Group all nodes (real + dummy) by rank
-  const byRank = new Map();
-  for (const [id, r] of rank) {
-    if (!byRank.has(r)) byRank.set(r, []);
-    byRank.get(r).push(id);
-  }
-  const ranks = [...byRank.keys()].sort((a, b) => a - b);
-
-  // ── Phase 3: Barycenter crossing minimisation ─────────────────────────────
-  // Build prev/next neighbour lists using dummy chains for long-span arcs.
-  // Only forward edges (rank strictly increases) are used; back-arcs are skipped
-  // so they don't distort the ordering of early columns.
-  const prevNbr = new Map();
-  const nextNbr = new Map();
-  for (const id of rank.keys()) { prevNbr.set(id, []); nextNbr.set(id, []); }
-
-  for (const arc of net.arcs.values()) {
-    const nodes = arcChains.get(arc.id) ?? [arc.source, arc.target];
-    for (let i = 0; i < nodes.length - 1; i++) {
-      const a = nodes[i], b = nodes[i + 1];
-      if ((rank.get(a) ?? 0) < (rank.get(b) ?? 0)) {
-        nextNbr.get(a)?.push(b);
-        prevNbr.get(b)?.push(a);
-      }
-    }
-  }
-
-  // posOrder[id] = current fractional position within its column
-  const posOrder = new Map();
-  for (const [r, ids] of byRank) ids.forEach((id, i) => posOrder.set(id, i));
-
-  function bary(id, useNext) {
-    const nbrs = (useNext ? nextNbr : prevNbr).get(id);
-    if (!nbrs?.length) return posOrder.get(id) ?? 0;
-    return nbrs.reduce((s, nb) => s + (posOrder.get(nb) ?? 0), 0) / nbrs.length;
-  }
-
-  for (let pass = 0; pass < 4; pass++) {
-    for (const r of ranks) {                          // forward sweep
-      byRank.get(r).sort((a, b) => bary(a, false) - bary(b, false));
-      byRank.get(r).forEach((id, i) => posOrder.set(id, i));
-    }
-    for (const r of [...ranks].reverse()) {           // backward sweep
-      byRank.get(r).sort((a, b) => bary(a, true) - bary(b, true));
-      byRank.get(r).forEach((id, i) => posOrder.set(id, i));
-    }
-  }
-
-  // ── Phase 4: Assign pixel coordinates ────────────────────────────────────
-  const X_GAP = 100, Y_GAP = 90;
-  const maxCol = Math.max(...[...byRank.values()].map(ids => ids.length), 1);
-  const totalH = maxCol * Y_GAP;
-
-  for (const [r, ids] of byRank) {
-    const groupH = ids.length * Y_GAP;
-    const startY = (totalH - groupH) / 2 + Y_GAP / 2;
-    ids.forEach((id, i) => {
-      const pos = { x: 80 + r * X_GAP, y: startY + i * Y_GAP };
-      const node = net.places.get(id) || net.transitions.get(id);
-      if (node) node.position = pos;
-      else if (dummies.has(id)) dummies.get(id).position = { ...pos };
-    });
-  }
-
-  // Write dummy waypoints into arc.points for polyline rendering
-  for (const arc of net.arcs.values()) {
-    const chain = arcChains.get(arc.id);
-    if (chain) {
-      arc.points = chain.slice(1, -1).map(did => ({ ...dummies.get(did).position }));
-    }
-  }
+function layoutNet(net, _sourceId) {
+  applyPetriNetLayout(net);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1428,6 +1319,7 @@ async function checkBackendStatus() {
       _backendConnected = true;
       el.className = 'connected';
       el.title = `Backend connected · pm4py ${data.pm4py}`;
+      if (data.version) document.getElementById('app-version').textContent = `v${data.version}`;
     } else {
       _backendConnected = false;
       el.className = 'disconnected';

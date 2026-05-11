@@ -37,14 +37,14 @@ function fpMakeGraph(edges) {
 }
 
 const ACT_KEY = DEFAULT_NAME_KEY;
-const LOG     = fpMakeLog();
+const FP_LOG     = fpMakeLog();
 
 // ── Perfect model (model footprint == log footprint) ─────────────────────────
 
 describe('computeFootprintConformance — perfect model', () => {
   // Model exactly matches what the log does: A→B, B→C, A→C
   const graph  = fpMakeGraph([['A','B',2], ['B','C',2], ['A','C',1]]);
-  const result = computeFootprintConformance(LOG, graph, ACT_KEY);
+  const result = computeFootprintConformance(FP_LOG, graph, ACT_KEY);
 
   it('fitness is 1.0', () => {
     assert.equal(result.fitness, 1);
@@ -83,7 +83,7 @@ describe('computeFootprintConformance — incomplete model', () => {
   // precision  = 2/2 = 1.0
   // fitting:   case-1 ✓, case-2 ✗ (A→C not in model), case-3 ✓  → 2/3
   const graph  = fpMakeGraph([['A','B',2], ['B','C',2]]);
-  const result = computeFootprintConformance(LOG, graph, ACT_KEY);
+  const result = computeFootprintConformance(FP_LOG, graph, ACT_KEY);
 
   it('fitness is 2/3', () => {
     assert.closeTo(result.fitness, 2 / 3, 1e-9);
@@ -110,7 +110,7 @@ describe('computeFootprintConformance — overfitting model', () => {
   // precision  = 3/5 = 0.6
   // fitting:   all 3 (model allows everything the log does)
   const graph  = fpMakeGraph([['A','B',2], ['B','C',2], ['A','C',1], ['C','A',1], ['B','A',1]]);
-  const result = computeFootprintConformance(LOG, graph, ACT_KEY);
+  const result = computeFootprintConformance(FP_LOG, graph, ACT_KEY);
 
   it('fitness is 1.0', () => {
     assert.equal(result.fitness, 1);
@@ -139,7 +139,7 @@ describe('computeFootprintConformance — disjoint model', () => {
   // precision  = 0/2 = 0.0
   // no traces fit
   const graph  = fpMakeGraph([['X','Y',1], ['Y','Z',1]]);
-  const result = computeFootprintConformance(LOG, graph, ACT_KEY);
+  const result = computeFootprintConformance(FP_LOG, graph, ACT_KEY);
 
   it('fitness is 0', () => {
     assert.equal(result.fitness, 0);
@@ -164,7 +164,7 @@ describe('computeFootprintConformance — empty model', () => {
   // precision  = vacuous: 0/0 → 1.0
   // no traces fit (each has at least one pair that is not in model)
   const graph  = new Map();
-  const result = computeFootprintConformance(LOG, graph, ACT_KEY);
+  const result = computeFootprintConformance(FP_LOG, graph, ACT_KEY);
 
   it('fitness is 0 (log has pairs the model does not allow)', () => {
     assert.equal(result.fitness, 0);

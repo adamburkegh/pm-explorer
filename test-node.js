@@ -101,10 +101,34 @@ global.DOMParser = class {
                 .replace(/&lt;/g,   '<').replace(/&gt;/g,   '>')
                 .replace(/&amp;/g,  '&');
       }
+      // Depth-first search for the first descendant matching a tag name selector
       querySelector(sel) {
-        if (sel === 'parsererror') return null; // XES has no parse errors
+        for (const child of this._children) {
+          if (child.tagName === sel) return child;
+          const found = child.querySelector(sel);
+          if (found) return found;
+        }
         return null;
       }
+    }
+
+    // Well-formedness check before building the tree
+    const openStack = [];
+    for (const tok of tokens) {
+      if (tok.t === 'open' && !tok.selfClose) openStack.push(tok.name);
+      else if (tok.t === 'close') {
+        if (openStack.length === 0 || openStack[openStack.length - 1] !== tok.name) {
+          const errEl = new El('parsererror', {});
+          errEl._text = `Unexpected closing tag </${tok.name}>`;
+          return { documentElement: errEl, querySelector: (s) => s === 'parsererror' ? errEl : null };
+        }
+        openStack.pop();
+      }
+    }
+    if (openStack.length > 0) {
+      const errEl = new El('parsererror', {});
+      errEl._text = `Unclosed tag(s): ${openStack.join(', ')}`;
+      return { documentElement: errEl, querySelector: (s) => s === 'parsererror' ? errEl : null };
     }
 
     const root = { _children: [] };
@@ -123,7 +147,7 @@ global.DOMParser = class {
     }
 
     const docEl = root._children[0];
-    return { documentElement: docEl, querySelector: () => null };
+    return { documentElement: docEl, querySelector: (s) => docEl ? docEl.querySelector(s) : null };
   }
 };
 
@@ -180,14 +204,31 @@ global.assert = {
     if (!has) throw new Error(m ?? `expected collection to include ${JSON.stringify(n)}`);
   },
   instanceOf:(a, C, m)    => { if (!(a instanceof C)) throw new Error(m ?? `expected instance of ${C.name}`); },
+  throws:    (fn, m)      => { try { fn(); throw new Error('expected throw'); } catch (e) { if (e.message === 'expected throw') throw new Error(m ?? 'expected function to throw'); } },
 };
 
 // ── Run the browser test files in this context ───────────────────────────────
 
+vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-event-log.js',           'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-xes-parser.js',          'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-log-util.js',            'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-alpha-miner.js',        'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-inductive-miner.js',    'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/conformance/test-footprint.js',        'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-dtlog.js',              'utf8'));
+
+// ── Layout ────────────────────────────────────────────────────────────────────
+
+vm.runInThisContext(fs.readFileSync('./static/js/layout/graph.js',             'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/layout/ranking.js',           'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/layout/crossing.js',          'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/layout/coordinates.js',       'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/layout/sugiyama.js',          'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-graph.js',      'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-ranking.js',    'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-crossing.js',   'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-coordinates.js','utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/layout/test-sugiyama.js',   'utf8'));
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`);
