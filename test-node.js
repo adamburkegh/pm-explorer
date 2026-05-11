@@ -94,7 +94,13 @@ global.DOMParser = class {
       get textContent() {
         return this._text + this._children.map(c => c.textContent).join('');
       }
-      getAttribute(k) { return this._attrs[k] ?? null; }
+      getAttribute(k) {
+        const v = this._attrs[k];
+        if (v == null) return null;
+        return v.replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+                .replace(/&lt;/g,   '<').replace(/&gt;/g,   '>')
+                .replace(/&amp;/g,  '&');
+      }
       querySelector(sel) {
         if (sel === 'parsererror') return null; // XES has no parse errors
         return null;
@@ -132,31 +138,10 @@ vm.runInThisContext(fs.readFileSync('./static/js/eventlog/log-util.js',     'utf
 vm.runInThisContext(fs.readFileSync('./static/js/pnv/model.js',             'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/js/discovery/alpha-miner.js', 'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/js/discovery/inductive-miner.js', 'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/js/eventlog/dtlog.js',          'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/js/conformance/footprint.js',     'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/fixtures/running-example-xes.js', 'utf8'));
-
-// xesParser stub: build the running-example log from known traces without DOMParser
-global.xesParser = {
-  parse(_xml) {
-    const TRACES = [
-      ['register request','examine casually','check ticket','decide','reinitiate request','examine thoroughly','check ticket','decide','pay compensation'],
-      ['register request','check ticket','examine casually','decide','reject request'],
-      ['register request','examine casually','check ticket','decide','pay compensation'],
-      ['register request','examine thoroughly','check ticket','decide','reject request'],
-      ['register request','examine casually','check ticket','decide','reinitiate request','examine casually','check ticket','decide','reject request'],
-      ['register request','check ticket','examine casually','decide','pay compensation'],
-    ];
-    const log = new EventLog();
-    TRACES.forEach((acts, i) => {
-      const trace = new Trace();
-      trace.attributes[DEFAULT_NAME_KEY] = `case-${i + 1}`;
-      for (const act of acts)
-        trace.append(new Event([[DEFAULT_NAME_KEY, act]]));
-      log.append(trace);
-    });
-    return log;
-  },
-};
+// xesParser is the real parser exported by xes-parser.js (loaded above).
 
 // ── Tiny test framework ───────────────────────────────────────────────────────
 
@@ -202,6 +187,7 @@ global.assert = {
 vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-alpha-miner.js',        'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-inductive-miner.js',    'utf8'));
 vm.runInThisContext(fs.readFileSync('./static/test/conformance/test-footprint.js',        'utf8'));
+vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-dtlog.js',              'utf8'));
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`);
