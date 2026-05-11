@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -32,46 +32,11 @@
 
 <div id="header">
   <h1>Test Runner</h1>
-  <button id="btn-run">Run all</button>
+  <button id="btn-run" disabled>Run all</button>
 </div>
-<div id="test-output"><div id="loading">Click "Run all" to execute tests.</div></div>
+<div id="test-output"><div id="loading">Loading…</div></div>
 
-<!-- Source dependencies (constants must load first) -->
-<script src="js/eventlog/constants.js"></script>
-<script src="js/eventlog/event-log.js"></script>
-<script src="js/eventlog/xes-parser.js"></script>
-<script src="js/eventlog/log-util.js"></script>
-<script src="js/pnv/model.js"></script>
-<script src="js/discovery/alpha-miner.js"></script>
-<script src="js/discovery/inductive-miner.js"></script>
-<script src="js/eventlog/dtlog.js"></script>
-<script src="js/conformance/footprint.js"></script>
-<script src="js/layout/graph.js"></script>
-<script src="js/layout/ranking.js"></script>
-<script src="js/layout/crossing.js"></script>
-<script src="js/layout/coordinates.js"></script>
-<script src="js/layout/sugiyama.js"></script>
-
-<!-- Test runner -->
-<script src="test/runner.js"></script>
-
-<!-- Inline XES fixtures (avoids fetch dependency) -->
-<script src="test/fixtures/running-example-xes.js"></script>
-
-<!-- Test suites -->
-<script src="test/eventlog/test-event-log.js"></script>
-<script src="test/eventlog/test-xes-parser.js"></script>
-<script src="test/eventlog/test-log-util.js"></script>
-<script src="test/discovery/test-alpha-miner.js"></script>
-<script src="test/discovery/test-inductive-miner.js"></script>
-<script src="test/conformance/test-footprint.js"></script>
-<script src="test/eventlog/test-dtlog.js"></script>
-<script src="test/layout/test-graph.js"></script>
-<script src="test/layout/test-ranking.js"></script>
-<script src="test/layout/test-crossing.js"></script>
-<script src="test/layout/test-coordinates.js"></script>
-<script src="test/layout/test-sugiyama.js"></script>
-
+<script src="test/loader.js"></script>
 <script>
   document.getElementById('btn-run').addEventListener('click', async () => {
     const out = document.getElementById('test-output');

@@ -154,20 +154,14 @@ global.DOMParser = class {
 const vm = require('vm');
 const fs = require('fs');
 
-// Load source files in dependency order
-vm.runInThisContext(fs.readFileSync('./static/js/eventlog/constants.js',    'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/eventlog/event-log.js',    'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/eventlog/xes-parser.js',   'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/eventlog/log-util.js',     'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/pnv/model.js',             'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/discovery/alpha-miner.js', 'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/discovery/inductive-miner.js', 'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/eventlog/dtlog.js',          'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/conformance/footprint.js',     'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/fixtures/running-example-xes.js', 'utf8'));
-// xesParser is the real parser exported by xes-parser.js (loaded above).
+// ── Load order from manifest (single source of truth) ────────────────────────
 
-// ── Tiny test framework ───────────────────────────────────────────────────────
+const { sources, tests } = JSON.parse(fs.readFileSync('./static/test/manifest.json', 'utf8'));
+const load = src => vm.runInThisContext(fs.readFileSync(`./static/${src}`, 'utf8'));
+
+sources.forEach(load);
+
+// ── Node framework (replaces test/runner.js) ─────────────────────────────────
 
 let _suite = '', _passed = 0, _failed = 0;
 
@@ -207,28 +201,8 @@ global.assert = {
   throws:    (fn, m)      => { try { fn(); throw new Error('expected throw'); } catch (e) { if (e.message === 'expected throw') throw new Error(m ?? 'expected function to throw'); } },
 };
 
-// ── Run the browser test files in this context ───────────────────────────────
-
-vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-event-log.js',           'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-xes-parser.js',          'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-log-util.js',            'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-alpha-miner.js',        'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/discovery/test-inductive-miner.js',    'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/conformance/test-footprint.js',        'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/eventlog/test-dtlog.js',              'utf8'));
-
-// ── Layout ────────────────────────────────────────────────────────────────────
-
-vm.runInThisContext(fs.readFileSync('./static/js/layout/graph.js',             'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/layout/ranking.js',           'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/layout/crossing.js',          'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/layout/coordinates.js',       'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/js/layout/sugiyama.js',          'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/layout/test-graph.js',      'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/layout/test-ranking.js',    'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/layout/test-crossing.js',   'utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/layout/test-coordinates.js','utf8'));
-vm.runInThisContext(fs.readFileSync('./static/test/layout/test-sugiyama.js',   'utf8'));
+// Phase 2: fixtures and test suites
+tests.forEach(load);
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`);

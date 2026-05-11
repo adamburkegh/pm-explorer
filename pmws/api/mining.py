@@ -13,6 +13,9 @@ def _noise_threshold():
         return 0.0
 
 
+# NOTE: /api/mine/dfg and /api/mine/inductive are not called by the pm-explorer
+# frontend (discovery runs client-side). Retained to mirror the API surface of
+# other projects, which consumes them directly.
 @mining_bp.post("/api/mine/dfg")
 def dfg():
     if "xes_file" not in request.files:
@@ -36,6 +39,7 @@ def dfg():
     })
 
 
+# (see note above)
 @mining_bp.post("/api/mine/inductive")
 def inductive():
     if "xes_file" not in request.files:

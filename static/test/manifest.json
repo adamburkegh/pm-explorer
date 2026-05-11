@@ -1,0 +1,35 @@
+{
+  "sources": [
+    "js/eventlog/constants.js",
+    "js/eventlog/event-log.js",
+    "js/eventlog/xes-parser.js",
+    "js/eventlog/log-util.js",
+    "js/pnv/model.js",
+    "js/discovery/alpha-miner.js",
+    "js/discovery/inductive-miner.js",
+    "js/eventlog/dtlog.js",
+    "js/conformance/footprint.js",
+    "js/layout/graph.js",
+    "js/layout/ranking.js",
+    "js/layout/crossing.js",
+    "js/layout/coordinates.js",
+    "js/layout/sugiyama.js",
+    "js/layout/dfg-layout.js"
+  ],
+  "tests": [
+    "test/fixtures/running-example-xes.js",
+    "test/eventlog/test-event-log.js",
+    "test/eventlog/test-xes-parser.js",
+    "test/eventlog/test-log-util.js",
+    "test/discovery/test-alpha-miner.js",
+    "test/discovery/test-inductive-miner.js",
+    "test/conformance/test-footprint.js",
+    "test/eventlog/test-dtlog.js",
+    "test/layout/test-graph.js",
+    "test/layout/test-ranking.js",
+    "test/layout/test-crossing.js",
+    "test/layout/test-coordinates.js",
+    "test/layout/test-sugiyama.js",
+    "test/layout/test-dfg-layout.js"
+  ]
+}

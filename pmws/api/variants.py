@@ -5,6 +5,9 @@ from pmws.xes import load_xes
 variants_bp = Blueprint("variants", __name__)
 
 
+# NOTE: This endpoint is not called by the pm-explorer frontend.
+# It is retained to mirror the API surface of the related projects,
+# which consumes it directly.
 @variants_bp.post("/api/variants")
 def variants():
     if "xes_file" not in request.files:
