@@ -16,7 +16,6 @@
  * Synthetic timestamps are assigned (1 min apart) so the EventLog is
  * compatible with time-aware algorithms.
  *
- * TODO: eventLogToXml() — serialise to XES for backend POST.
  */
 
 /**
