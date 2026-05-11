@@ -506,14 +506,16 @@ document.getElementById('file-input').addEventListener('change', e => {
   e.target.value = '';
 });
 
-const _dz = document.getElementById('drop-zone');
-_dz.addEventListener('dragover', e => { e.preventDefault(); _dz.classList.add('over'); });
-_dz.addEventListener('dragleave', () => _dz.classList.remove('over'));
-_dz.addEventListener('drop', e => {
-  e.preventDefault();
-  _dz.classList.remove('over');
-  if (e.dataTransfer.files[0]) loadXes(e.dataTransfer.files[0]);
-});
+{
+  const dz = document.getElementById('drop-zone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('over');
+    if (e.dataTransfer.files[0]) loadXes(e.dataTransfer.files[0]);
+  });
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Log Editor
