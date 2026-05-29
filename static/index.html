@@ -187,6 +187,47 @@
     #im-bpmn-area .djs-context-pad,
     #im-bpmn-area .bio-powered-by { display: none !important; }
 
+    /* ── Variants panel ────────────────────────────────────────────────────── */
+    #panel-variants { flex: 1; overflow-y: auto; padding: 16px 20px; }
+    .vv-controls {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .vv-controls label { font-size: 12px; color: #888; }
+    .vv-controls input[type=range] { width: 130px; accent-color: #4682b4; }
+    .vv-controls span { font-size: 12px; font-weight: 500; min-width: 28px; color: #d4d4d4; }
+    .vv-legend {
+      display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 14px;
+      padding-bottom: 10px; border-bottom: 1px solid #3a3a3a;
+    }
+    .vv-legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #888; }
+    .vv-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+    .vv-rows { padding-top: 4px; }
+    .vv-row {
+      display: grid;
+      grid-template-columns: 36px 1fr 90px 52px;
+      align-items: center; gap: 8px; margin-bottom: 8px;
+    }
+    .vv-rank { font-size: 11px; color: #555; text-align: right; }
+    .vv-track { overflow-x: auto; scrollbar-width: none; }
+    .vv-track::-webkit-scrollbar { display: none; }
+    .vv-wrap { display: flex; align-items: center; flex-shrink: 0; }
+    .vv-chevron {
+      position: relative; display: flex; align-items: center; justify-content: center;
+      height: 28px; padding: 0 12px 0 18px; font-size: 11px; font-weight: 500;
+      white-space: nowrap; cursor: default; transition: opacity 0.12s;
+      clip-path: polygon(0% 0%, calc(100% - 9px) 0%, 100% 50%, calc(100% - 9px) 100%, 0% 100%, 9px 50%);
+    }
+    .vv-chevron--first {
+      clip-path: polygon(0% 0%, calc(100% - 9px) 0%, 100% 50%, calc(100% - 9px) 100%, 0% 100%);
+      padding-left: 10px;
+    }
+    .vv-chevron:hover { opacity: 0.8; }
+    .vv-bar-wrap { height: 5px; background: #2a2a2a; border-radius: 3px; }
+    .vv-bar { height: 5px; background: #378ADD; border-radius: 3px; }
+    .vv-count { font-size: 11px; color: #888; font-family: monospace; }
+    .vv-empty { font-size: 12px; color: #555; padding: 8px 0; }
+
     /* ── Conformance panel ─────────────────────────────────────────────────── */
     #conf-content {
       flex: 1; overflow-y: auto; padding: 20px;
@@ -216,6 +257,7 @@
   <nav id="tabs">
     <button data-tab="log"   class="active">Log</button>
     <button data-tab="editor">Log Editor</button>
+    <button data-tab="variants">Variants</button>
     <button data-tab="dfg">DFG</button>
     <button data-tab="alpha">Alpha Miner</button>
     <button data-tab="im">Inductive Miner</button>
@@ -332,6 +374,11 @@
     </div>
   </div>
 
+  <!-- Variants panel -->
+  <div id="panel-variants" class="panel hidden">
+    <div id="variants-content"></div>
+  </div>
+
 </div><!-- #content -->
 
 <!-- ── JS dependencies ─────────────────────────────────────────────────────── -->
@@ -356,6 +403,7 @@
 <script src="js/discovery/alpha-miner.js"></script>
 <script src="js/discovery/inductive-miner.js"></script>
 <script src="js/discovery/process-tree-renderer.js"></script>
+<script src="js/discovery/variants-viz.js"></script>
 <script src="js/conformance/footprint.js"></script>
 <script src="js/lib/bpmn-js/bpmn-modeler.production.min.js"></script>
 <!-- Bundled example log (avoids fetch dependency under file://) -->
@@ -371,7 +419,8 @@ let _logName  = null;   // string   | null
 let _logFile  = null;   // File | Blob | null  — kept for backend POSTs
 let _logEpoch = 0;      // incremented each time a new log is loaded
 
-let _dfgEpoch     = -1;   // _logEpoch value of the last DFG run
+let _dfgEpoch      = -1;   // _logEpoch value of the last DFG run
+let _variantsEpoch = -1;   // _logEpoch value of the last variants render
 
 let _alphaEpoch   = -1;   // _logEpoch value of the last alpha run
 let _alphaTokens  = null; // Map<placeId, number> initial token snapshot
@@ -431,6 +480,10 @@ function switchTab(tab) {
   if (tab === 'conformance') {
     updateConformanceReady();
   }
+  if (tab === 'variants' && _log && _variantsEpoch !== _logEpoch) {
+    variantsViewer.load(_log);
+    _variantsEpoch = _logEpoch;
+  }
 }
 
 document.querySelectorAll('#tabs button').forEach(btn =>
@@ -464,9 +517,10 @@ function onLogLoaded(log, name) {
   // Refresh whichever panel is currently visible
   const active = document.querySelector('#tabs button.active')?.dataset.tab;
   if (active === 'log')   renderLog(log);
-  if (active === 'dfg')   runDfg();
-  if (active === 'alpha') runAlpha();
-  if (active === 'im')    runInductive();
+  if (active === 'dfg')      runDfg();
+  if (active === 'alpha')    runAlpha();
+  if (active === 'im')       runInductive();
+  if (active === 'variants') { variantsViewer.load(_log); _variantsEpoch = _logEpoch; }
 }
 
 async function loadXes(source) {
@@ -760,7 +814,8 @@ const alphaViewer = new PetriNetViewer(document.getElementById('alpha-canvas'), 
 // DFG panel
 // ═══════════════════════════════════════════════════════════════════════════
 
-const dfgViewer = new DfgViewer(document.getElementById('dfg-canvas'));
+const dfgViewer      = new DfgViewer(document.getElementById('dfg-canvas'));
+const variantsViewer = new VariantsViewer(document.getElementById('variants-content'));
 
 // layoutDfg is defined in js/layout/dfg-layout.js
 
