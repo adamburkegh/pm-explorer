@@ -531,6 +531,57 @@ describe('loop cut — two redo options', () => {
   });
 });
 
+describe('loop cut — _exclude_sets_non_reachable_from_start', () => {
+  // A is start-only (never an end act); B is end-only (never a start act).
+  // C would otherwise pass the basic loop-cut validity checks:
+  //   hasInFromEnd  B→C ✓,  hasOutToStart C→A ✓
+  // but A (start-only) has a direct DFG edge A→C.
+  // _exclude_sets_non_reachable_from_start must merge C into the do-group,
+  // collapsing the cut.  Without the check the tree would be
+  // LOOP(SEQ(A, XOR(τ,B)), C) with C isolated as a leaf redo child.
+  const uvcl = makeUVCL(
+    [['A', 'B'],                2],  // base: A start, B end
+    [['A', 'B', 'C', 'A', 'B'], 1],  // loop via C  (B→C, C→A)
+    [['A', 'C', 'A', 'B'],      1],  // A→C direct — triggers the check
+  );
+  const { processTree: tree } = applyInductiveMinerUvcl(uvcl);
+
+  it('C is not isolated as a leaf redo', () => {
+    assert.notEqual(tree.children[1]?.label, 'C',
+      `without the check the tree would have leaf C as redo; got ${treeStr(tree)}`);
+  });
+  it('C is merged into the same model body as A and B', () => {
+    const labels = leafLabels(tree).filter(l => l !== null);
+    assert.ok(labels.includes('C'), `C missing from tree; got ${treeStr(tree)}`);
+  });
+});
+
+describe('loop cut — _exclude_sets_no_reachable_from_end', () => {
+  // A is both start and end act; B is end-only (never a start act).
+  // R would otherwise pass the basic loop-cut validity checks:
+  //   hasInFromEnd  A→R ✓,  hasOutToStart R→A ✓
+  // but R (redo candidate) has a direct DFG edge R→B to end-only B.
+  // _exclude_sets_no_reachable_from_end must merge R into the do-group,
+  // collapsing the cut.  Without the check the tree would be
+  // LOOP(PAR(A, XOR(τ,B)), R) with R isolated as a leaf redo child.
+  const uvcl = makeUVCL(
+    [['A', 'B', 'A'], 1],  // B mid-trace gives B→A edge
+    [['A', 'B'],      1],  // B as end act
+    [['A', 'R', 'A'], 1],  // loop via R  (A→R, R→A)
+    [['A', 'R', 'B'], 1],  // R→B direct — triggers the check
+  );
+  const { processTree: tree } = applyInductiveMinerUvcl(uvcl);
+
+  it('R is not isolated as a leaf redo', () => {
+    assert.notEqual(tree.children[1]?.label, 'R',
+      `without the check the tree would have leaf R as redo; got ${treeStr(tree)}`);
+  });
+  it('R is merged into the same model body as A and B', () => {
+    const labels = leafLabels(tree).filter(l => l !== null);
+    assert.ok(labels.includes('R'), `R missing from tree; got ${treeStr(tree)}`);
+  });
+});
+
 // ── 6. Petri net structural invariants ───────────────────────────────────────
 
 describe('petri net invariants — bipartite arcs and markings', () => {

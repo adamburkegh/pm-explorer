@@ -484,9 +484,7 @@ function _concurrencyProject(uvcl, groups) {
 // ── Loop cut ──────────────────────────────────────────────────────────────────
 
 /**
- * Compute connected components among "redo" candidates (nodes not in do-set),
- * respecting the loop structure.
- * Mirrors LoopCut.__compute_loop_connected_components().
+ * Mirrors pm4py LoopCut.holds() / LoopCutUVCL.
  *
  * @param {Set<string>} nodes
  * @param {Map<string,number>} dfg
@@ -497,58 +495,69 @@ function _concurrencyProject(uvcl, groups) {
 function _loopCut(nodes, dfg, startActs, endActs) {
   if (nodes.size <= 1) return null;
 
-  // do-set = start activities ∪ end activities (within the current node set)
-  const doSet = new Set();
-  for (const a of startActs.keys()) if (nodes.has(a)) doSet.add(a);
-  for (const a of endActs.keys())   if (nodes.has(a)) doSet.add(a);
+  const startSet = new Set(
+    [...startActs.keys()].filter(a => nodes.has(a))
+  );
+  const endSet = new Set(
+    [...endActs.keys()].filter(a => nodes.has(a))
+  );
 
-  // redo candidates = everything else
-  const redoCandidates = new Set([...nodes].filter(n => !doSet.has(n)));
-
-  // Check 1: every redo-candidate must have edges only to/from do-set or other redo-candidates
-  // (pm4py actually checks 4 conditions)
-
-  // Check 2: every redo node must have an edge to a start activity (do→redo edge OK)
-  // and an edge from an end activity (redo→do edge OK)
-  // Simplified: build redo sub-DFG + edges bridging redo↔do
+  // Initial do-group = startActs ∪ endActs.  Redo candidates = the rest,
+  // partitioned into connected components (edges to/from do-acts ignored).
+  const redoCandidates = new Set(
+    [...nodes].filter(n => !startSet.has(n) && !endSet.has(n))
+  );
   const uf = _makeUF(redoCandidates);
   for (const key of dfg.keys()) {
     const [a, b] = dfgKeyParts(key);
-    if (redoCandidates.has(a) && redoCandidates.has(b)) {
-      uf.union(a, b);
+    if (redoCandidates.has(a) && redoCandidates.has(b)) uf.union(a, b);
+  }
+
+  // groups[0] = do-group; groups[1..] = redo components
+  let groups = [new Set([...startSet, ...endSet])];
+  if (redoCandidates.size > 0) {
+    for (const g of uf.groups()) groups.push(g);
+  }
+
+  function mergeInto0(i) {
+    for (const n of groups[i]) groups[0].add(n);
+    groups.splice(i, 1);
+  }
+
+  // _exclude_sets_non_reachable_from_start:
+  // redo group directly reachable from a start-only activity → merge into do.
+  for (const a of startSet) {
+    if (endSet.has(a)) continue;
+    for (const key of dfg.keys()) {
+      const [x, b] = dfgKeyParts(key);
+      if (x !== a) continue;
+      for (let i = 1; i < groups.length; i++) {
+        if (groups[i].has(b)) { mergeInto0(i); break; }
+      }
     }
   }
 
-  const redoGroups = redoCandidates.size > 0 ? uf.groups() : [];
-
-  // Validity checks (mirrors pm4py LoopCut._apply()):
-  // 1. No edges from do-node to do-node that skip through redo
-  //    (Can't easily check without more info; we trust the DFG structure)
-
-  // 2. Every redo group must have ≥1 edge coming from an end activity
-  //    AND ≥1 edge going to a start activity
-  for (const rg of redoGroups) {
-    let hasInFromEnd = false, hasOutToStart = false;
-    for (const r of rg) {
-      for (const e of endActs.keys()) {
-        if (nodes.has(e) && dfg.has(dfgKey(e, r))) { hasInFromEnd = true; break; }
-      }
-      for (const s of startActs.keys()) {
-        if (nodes.has(s) && dfg.has(dfgKey(r, s))) { hasOutToStart = true; break; }
+  // _exclude_sets_no_reachable_from_end:
+  // redo group that directly reaches an end-only activity → merge into do.
+  for (const b of endSet) {
+    if (startSet.has(b)) continue;
+    for (const key of dfg.keys()) {
+      const [a, x] = dfgKeyParts(key);
+      if (x !== b) continue;
+      for (let i = 1; i < groups.length; i++) {
+        if (groups[i].has(a)) { mergeInto0(i); break; }
       }
     }
-    if (!hasInFromEnd || !hasOutToStart) return null;
   }
 
-  // 3. No edges from redo to redo across groups (already separated by UF)
-  // 4. Every start-activity must have an edge from every end-activity
-  //    OR from some redo group (for valid looping)
-  //    pm4py checks: no direct end→start edge unless it's via redo
-  // We enforce a simpler but sufficient check:
-  // If there are no redo candidates at all, this isn't a loop cut
-  if (redoCandidates.size === 0) return null;
+  if (groups.length <= 1) return null;
 
-  return { doSet, redoGroups };
+  // Merge all remaining redo components into one (mirrors pm4py).
+  const redoMerged = new Set();
+  for (let i = 1; i < groups.length; i++) {
+    for (const n of groups[i]) redoMerged.add(n);
+  }
+  return { doSet: groups[0], redoGroups: [redoMerged] };
 }
 
 /**
