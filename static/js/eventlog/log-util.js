@@ -373,3 +373,84 @@ function getLogSummary(log, activityKey) {
     endActivities:     Object.fromEntries(endActs),
   };
 }
+
+/**
+ * Convert an EventLog into the payload shape expected by DottedChart.
+ *
+ * Cases are ranked 0..n-1 sorted by their earliest timestamp.
+ * Activities are sorted alphabetically and assigned a compact index.
+ * Events missing a timestamp or activity name are silently skipped.
+ *
+ * Returns null when the log has no timestamped events.
+ *
+ * @param {EventLog} log
+ * @returns {{
+ *   events:      number[][],
+ *   activities:  string[],
+ *   n_cases:     number,
+ *   n_events:    number,
+ *   time_min_ms: number,
+ *   time_max_ms: number,
+ * }|null}
+ */
+function logToDottedData(log) {
+  const actKey = log.activityKey;
+  const tsKey  = log.timestampKey;
+
+  // Collect traces with their earliest timestamp for rank ordering.
+  const traceInfos = [];
+  for (const trace of log) {
+    let firstMs = null;
+    for (const ev of trace) {
+      const ts = ev.get(tsKey);
+      if (ts instanceof Date) { firstMs = ts.getTime(); break; }
+    }
+    traceInfos.push({ trace, firstMs });
+  }
+  traceInfos.sort((a, b) => {
+    if (a.firstMs === b.firstMs) return 0;
+    if (a.firstMs === null) return 1;
+    if (b.firstMs === null) return -1;
+    return a.firstMs - b.firstMs;
+  });
+
+  // Collect distinct activities (sorted) → compact index.
+  const actSet = new Set();
+  for (const { trace } of traceInfos) {
+    for (const ev of trace) {
+      const act = ev.get(actKey);
+      if (act != null) actSet.add(String(act));
+    }
+  }
+  const activities = [...actSet].sort();
+  const actIdx = new Map(activities.map((a, i) => [a, i]));
+
+  // Build events array.
+  const events = [];
+  let timeMin = Infinity, timeMax = -Infinity, nEvents = 0;
+  for (let rank = 0; rank < traceInfos.length; rank++) {
+    for (const ev of traceInfos[rank].trace) {
+      const act = ev.get(actKey);
+      const ts  = ev.get(tsKey);
+      if (act == null || !(ts instanceof Date)) continue;
+      const ms = ts.getTime();
+      const ai = actIdx.get(String(act));
+      if (ai === undefined) continue;
+      events.push([rank, ms, ai]);
+      if (ms < timeMin) timeMin = ms;
+      if (ms > timeMax) timeMax = ms;
+      nEvents++;
+    }
+  }
+
+  if (nEvents === 0) return null;
+
+  return {
+    events,
+    activities,
+    n_cases:     traceInfos.length,
+    n_events:    nEvents,
+    time_min_ms: timeMin,
+    time_max_ms: timeMax,
+  };
+}

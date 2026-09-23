@@ -228,6 +228,17 @@
     .vv-count { font-size: 11px; color: #888; font-family: monospace; }
     .vv-empty { font-size: 12px; color: #555; padding: 8px 0; }
 
+    /* ── Dotted Chart panel ────────────────────────────────────────────────── */
+    #dotted-legend {
+      display: flex; flex-wrap: wrap; gap: 4px 12px; flex-shrink: 0;
+      padding: 4px 10px; background: #2d2d2d; border-bottom: 1px solid #444;
+      font-size: 11px; color: #888;
+    }
+    .dc-leg-item { display: flex; align-items: center; gap: 4px; }
+    .dc-leg-swatch {
+      width: 10px; height: 10px; border-radius: 1px; flex-shrink: 0;
+    }
+
     /* ── Conformance panel ─────────────────────────────────────────────────── */
     #conf-content {
       flex: 1; overflow-y: auto; padding: 20px;
@@ -258,6 +269,7 @@
     <button data-tab="log"   class="active">Log</button>
     <button data-tab="editor">Log Editor</button>
     <button data-tab="variants">Variants</button>
+    <button data-tab="dotted">Dotted Chart</button>
     <button data-tab="dfg">DFG</button>
     <button data-tab="alpha">Alpha Miner</button>
     <button data-tab="im">Inductive Miner</button>
@@ -356,6 +368,23 @@
     <div class="canvas-area hidden" id="im-tree-area"></div>
   </div>
 
+  <!-- Dotted Chart panel -->
+  <div id="panel-dotted" class="panel hidden">
+    <div class="panel-toolbar">
+      <span id="dotted-status" class="info">Load a log and switch to this tab.</span>
+      <span class="spacer"></span>
+      <span id="dotted-stats" class="info"></span>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="dotted-caselines"> Case lines
+      </label>
+      <button id="btn-dotted-fit">Fit view</button>
+    </div>
+    <div id="dotted-legend"></div>
+    <div class="canvas-area">
+      <canvas id="dotted-canvas"></canvas>
+    </div>
+  </div>
+
   <!-- Conformance panel -->
   <div id="panel-conformance" class="panel hidden">
     <div class="panel-toolbar">
@@ -404,6 +433,7 @@
 <script src="js/discovery/inductive-miner.js"></script>
 <script src="js/discovery/process-tree-renderer.js"></script>
 <script src="js/discovery/variants-viz.js"></script>
+<script src="js/dotted-chart.js"></script>
 <script src="js/conformance/footprint.js"></script>
 <script src="js/lib/bpmn-js/bpmn-modeler.production.min.js"></script>
 <!-- Bundled example log (avoids fetch dependency under file://) -->
@@ -425,6 +455,7 @@ let _variantsEpoch = -1;   // _logEpoch value of the last variants render
 let _alphaEpoch   = -1;   // _logEpoch value of the last alpha run
 let _alphaTokens  = null; // Map<placeId, number> initial token snapshot
 
+let _dottedEpoch  = -1;   // _logEpoch value of the last dotted chart run
 let _imEpoch      = -1;   // _logEpoch value of the last IM run
 let _imTokens     = null; // Map<placeId, number> initial token snapshot
 let _imProcessTree    = null; // ProcessTreeNode from last IM run (JS-local)
@@ -474,6 +505,13 @@ function switchTab(tab) {
       imViewer.fitView();
     }
   }
+  if (tab === 'dotted') {
+    if (_log && _dottedEpoch !== _logEpoch) {
+      runDotted();
+    } else {
+      dottedChart.fitView();
+    }
+  }
   if (tab === 'log' && _log) {
     renderLog(_log);
   }
@@ -520,6 +558,7 @@ function onLogLoaded(log, name) {
   if (active === 'dfg')      runDfg();
   if (active === 'alpha')    runAlpha();
   if (active === 'im')       runInductive();
+  if (active === 'dotted')   runDotted();
   if (active === 'variants') { variantsViewer.load(_log); _variantsEpoch = _logEpoch; }
 }
 
@@ -816,6 +855,7 @@ const alphaViewer = new PetriNetViewer(document.getElementById('alpha-canvas'), 
 
 const dfgViewer      = new DfgViewer(document.getElementById('dfg-canvas'));
 const variantsViewer = new VariantsViewer(document.getElementById('variants-content'));
+const dottedChart    = new DottedChart(document.getElementById('dotted-canvas'));
 
 // layoutDfg is defined in js/layout/dfg-layout.js
 
@@ -836,6 +876,51 @@ function runDfg() {
 
 document.getElementById('btn-dfg-fit').addEventListener('click',
   () => dfgViewer.fitView());
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Dotted Chart panel
+// ═══════════════════════════════════════════════════════════════════════════
+
+function runDotted() {
+  if (!_log) return;
+  const data = logToDottedData(_log);
+  _dottedEpoch = _logEpoch;
+
+  if (!data) {
+    document.getElementById('dotted-status').textContent =
+      'No timestamped events in log.';
+    document.getElementById('dotted-stats').textContent = '';
+    document.getElementById('dotted-legend').innerHTML  = '';
+    return;
+  }
+
+  const colours = data.activities.map(
+    (_, i) => VARIANT_PALETTE[i % VARIANT_PALETTE.length]
+  );
+  dottedChart.load(data, colours);
+
+  const legend = document.getElementById('dotted-legend');
+  legend.innerHTML = data.activities.map((act, i) =>
+    `<span class="dc-leg-item">` +
+    `<span class="dc-leg-swatch" ` +
+    `style="background:${colours[i]}"></span>` +
+    `${xmlEscape(act)}</span>`
+  ).join('');
+
+  document.getElementById('dotted-status').textContent = _logName ?? '';
+  document.getElementById('dotted-stats').textContent  =
+    `${data.n_cases} cases · ${data.n_events} events · ` +
+    `${data.activities.length} activities`;
+}
+
+document.getElementById('btn-dotted-fit').addEventListener('click',
+  () => dottedChart.fitView());
+
+document.getElementById('dotted-caselines').addEventListener('change',
+  function() {
+    dottedChart.showCaseLines = this.checked;
+    dottedChart.render();
+  });
 
 function runAlpha() {
   if (!_log) return;
